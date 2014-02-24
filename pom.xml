@@ -241,7 +241,7 @@
         <log4j.version>1.2.16</log4j.version>
         <!--<orientdb.version>1.4.2-SNAPSHOT</orientdb.version>-->
         <orientdb.version>1.6.4</orientdb.version>
-        <orientdb.studio.version>1.5.1</orientdb.studio.version>
+        <orientdb.studio.version>1.6.2-SNAPSHOT</orientdb.studio.version>
         <jackson.version>1.9.10</jackson.version>
         <restlet.version>2.0.15</restlet.version>
         <javascript.maven.plugin.version>2.0.0-alpha-1</javascript.maven.plugin.version>
