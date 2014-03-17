@@ -23,7 +23,6 @@
  */
 package org.forgerock.openidm.repo.jdbc.impl;
 
-import java.sql.Connection;
 import java.sql.SQLException;
 
 import org.forgerock.openidm.repo.jdbc.ErrorType;
@@ -34,20 +33,20 @@ import org.forgerock.openidm.repo.jdbc.ErrorType;
  * @author aegloff
  */
 public class MySQLExceptionHandler extends DefaultSQLExceptionHandler {
-    
+
     /**
      * @InheritDoc
      */
     public boolean isErrorType(SQLException ex, ErrorType errorType) {
         boolean result = XOpenErrorMapping.isErrorType(ex, errorType);
-        
+
         // MySQL the 23000 status code can be for multiple constraint violations, not just duplicates
         if (ErrorType.DUPLICATE_KEY.equals(errorType) && result) {
             // MySQL 1062 is for duplicate key value
             return 1062 == ex.getErrorCode();
         }
-        
+
         return result;
     }
-    
+
 }

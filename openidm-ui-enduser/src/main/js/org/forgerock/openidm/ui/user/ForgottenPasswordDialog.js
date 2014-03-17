@@ -35,7 +35,7 @@ define("org/forgerock/openidm/ui/user/ForgottenPasswordDialog", [
 ], function(Dialog, validatorsManager, userDelegate, eventManager, constants, conf, securityQuestionDelegate) {
     var ForgottenPasswordDialog = Dialog.extend({    
         contentTemplate: "templates/user/ForgottenPasswordTemplate.html",
-        baseTemplate: "templates/common/LoginBaseTemplate.html",
+        baseTemplate: "templates/common/MediumBaseTemplate.html",
         
         events: {
             "click .dialogActions input[type=submit]": "formSubmit",
@@ -49,23 +49,12 @@ define("org/forgerock/openidm/ui/user/ForgottenPasswordDialog", [
             "userNameNotFound": "userNameNotFound"
         },
         
-        data: {         
-            width: 800,
-            height: 400
-        },
-        
-        heights : {
-            "userName": 210,
-            "securityAnswer": 300,
-            "password": 400
-        },
-        
         securityQuestions: {},
         
         render: function() {
             var securityQuestionRef;
             this.securityQuestions = {};
-            this.actions = {};
+            this.actions = [];
             this.addAction($.t("common.form.update"), "submit");
             this.show(_.bind(function() {
                 validatorsManager.bindValidators(this.$el); 
@@ -75,8 +64,6 @@ define("org/forgerock/openidm/ui/user/ForgottenPasswordDialog", [
                     this.$el.find("input[name=resetUsername]").trigger("change");
                     delete conf.forgottenPasswordUserName;
                 }
-                this.data.height = this.heights.userName;
-                this.resize();
             }, this));
             
             securityQuestionRef = this.securityQuestions;
@@ -100,25 +87,21 @@ define("org/forgerock/openidm/ui/user/ForgottenPasswordDialog", [
                     this.$el.find("input[name=fgtnSecurityAnswer]").val("");
                     this.$el.find("input[name=password]").val("");
                     this.$el.find("input[name=passwordConfirm]").val("");
-                    this.data.height = this.heights.userName;
-                    this.resize();
                 }
             }
         },
         userNameFound: function (event, securityQuestion) {
-            console.log(this.securityQuestions[securityQuestion]);
             $("#fgtnSecurityQuestion").text(this.securityQuestions[securityQuestion]);
-            this.data.height = this.heights.securityAnswer;
-            this.resize();
-            this.$el.find("#fgtnAnswerDiv").show();
+            this.$el.find("#fgtnAnswerDiv").slideDown();
             this.$el.find("input[name=fgtnSecurityAnswer]").focus();
+            this.$el.find("input[name=submitUsername]").fadeOut();
+            this.$el.find("#resetUsername").prop('readonly','true');
         },
         userNameNotFound: function () {
-            $("#fgtnAnswerDiv, #fgtnPasswordDiv").hide();
+            $("#fgtnAnswerDiv, #fgtnPasswordDiv").slideUp();
             this.$el.find(".dialogActions input[type=submit]").hide();
-            this.data.height = this.heights.userName;
-            this.resize();
             this.$el.find("input[name=resetUsername]").focus();
+            this.$el.find("input[name=submitUsername]").fadeIn();
         },
         changePassword: function() {
             var dialog = this, userName = this.$el.find("input[name=resetUsername]").val(), securityAnswer = this.$el.find("input[name=fgtnSecurityAnswer]").val(), newPassword = this.$el.find("input[name=password]").val();
@@ -144,16 +127,16 @@ define("org/forgerock/openidm/ui/user/ForgottenPasswordDialog", [
                 if (typeof(msg) === "undefined") {
                     validatorsManager.bindValidators(this.$el.find('#fgtnPasswordDiv'), userDelegate.baseEntity + "/" + this.$el.find("input[name=_id]").val(), _.bind(function () {
                         this.$el.trigger("onValidate");
-                        this.$el.find("#fgtnPasswordDiv").show();
+                        this.$el.find("#fgtnPasswordDiv").slideDown();
                         this.$el.find(".dialogActions input[type=submit]").show();
-                        this.data.height = this.heights.password;
-                        this.resize();
+                        this.$el.find("input[name=submitAnswer]").css('visibility','hidden');
+                        this.$el.find("#fgtnSecurityAnswer").prop('readonly','true');
+                   
+                        
                     }, this)); 
                 }
                 else {
-                    this.$el.find("#fgtnPasswordDiv").hide();
-                    this.data.height = this.heights.securityAnswer;
-                    this.resize();
+                    this.$el.find("#fgtnPasswordDiv").slideUp();
                     this.$el.find("input[name=_id]").val("");
                 }
                 

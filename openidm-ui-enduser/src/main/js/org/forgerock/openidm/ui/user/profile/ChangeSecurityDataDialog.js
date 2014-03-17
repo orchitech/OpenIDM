@@ -40,12 +40,7 @@ define("org/forgerock/openidm/ui/user/profile/ChangeSecurityDataDialog", [
 ], function(Dialog, validatorsManager, conf, userDelegate, internalUserDelegate, uiUtils, eventManager, constants, securityQuestionDelegate) {
     var ChangeSecurityDataDialog = Dialog.extend({    
         contentTemplate: "templates/user/ChangeSecurityDataDialogTemplate.html",
-        
-        data: {         
-            width: 800,
-            height: 400
-        },
-        
+
         events: {
             "click input[type=submit]": "formSubmit",
             "onValidate": "onValidate",
@@ -73,54 +68,41 @@ define("org/forgerock/openidm/ui/user/profile/ChangeSecurityDataDialog", [
             var patchDefinitionObject = [], element;
             
             if(validatorsManager.formValidated(this.$el.find("#passwordChange"))) {            
-                patchDefinitionObject.push({replace: "password", value: this.$el.find("input[name=password]").val()});
+                patchDefinitionObject.push({operation: "replace", field: "password", value: this.$el.find("input[name=password]").val()});
             }
     
             if(validatorsManager.formValidated(this.$el.find("#securityDataChange"))) {            
-                patchDefinitionObject.push({replace: "securityQuestion", value: this.$el.find("select[name=securityQuestion]").val()});
-                patchDefinitionObject.push({replace: "securityAnswer", value: this.$el.find("input[name=securityAnswer]").val()});
+                patchDefinitionObject.push({operation: "replace", field: "securityQuestion", value: this.$el.find("select[name=securityQuestion]").val()});
+                patchDefinitionObject.push({operation: "replace", field: "securityAnswer", value: this.$el.find("input[name=securityAnswer]").val()});
             }
             
             this.delegate.patchSelectedUserAttributes(conf.loggedUser._id, conf.loggedUser._rev, patchDefinitionObject, _.bind(function(r) {
                 eventManager.sendEvent(constants.EVENT_DISPLAY_MESSAGE_REQUEST, "securityDataChanged");
                 delete conf.passwords;
                 this.close();
-                
-                if ($.inArray("ui-admin", conf.loggedUser.roles) === -1) {
-                    userDelegate.getForUserID(conf.loggedUser._id, function(user) {
-                        conf.loggedUser = user;
-                    });
-                } else {
-                    userDelegate.getForUserName(conf.loggedUser.userName, function(user) {
-                        conf.loggedUser = user;
-                    });
-                }
-                        
+
+                userDelegate.getProfile(function (user) {
+                    conf.loggedUser = user;
+                });
+
             }, this));
         },
         customValidate: function () {
 
             if(validatorsManager.formValidated(this.$el.find("#passwordChange")) || validatorsManager.formValidated(this.$el.find("#securityDataChange"))) {
-                this.$el.find("input[type=submit]").removeClass('inactive').addClass('active');
+                this.$el.find("input[type=submit]").prop('disabled', false);
             }
             else {
-                this.$el.find("input[type=submit]").addClass('inactive').removeClass('active');
+                this.$el.find("input[type=submit]").prop('disabled', true);
             }
-                
             
         },
         render: function() {
-            this.actions = {};
+            this.actions = [];
             this.addAction($.t("common.form.update"), "submit");
             
             this.delegate = conf.globalData.userComponent === "internal/user" ? internalUserDelegate : userDelegate;
-            
-            if(conf.globalData.userComponent === "internal/user") {
-                this.data.height = 260;
-            } else if(conf.globalData.securityQuestions === true) {
-                this.data.height = 475;
-            }
-            
+                        
             $("#dialogs").hide();
             this.show(_.bind(function() {
                 validatorsManager.bindValidators(this.$el, this.delegate.baseEntity + "/" + conf.loggedUser._id, _.bind(function () {
@@ -131,6 +113,8 @@ define("org/forgerock/openidm/ui/user/profile/ChangeSecurityDataDialog", [
                 }, this));
                 
             }, this));
+            
+            this.$el.find("input[type=submit]").prop('disabled', true);
         },
         
         reloadData: function() {

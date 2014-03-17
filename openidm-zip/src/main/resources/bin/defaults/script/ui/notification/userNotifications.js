@@ -29,10 +29,9 @@
  * 
  */
 (function () {
-    var userId, res, ret, params, notification;
+    var userId = context.security.authorizationId.id, res, ret, params, notification;
 
     if (request.method === "read") {
-        userId = request.parent.security.userid.id; 
         res = {};
         params = {
             "_queryId": "get-notifications-for-user",
@@ -46,22 +45,21 @@
         
         return res;
         
-    } else if (request.method === "delete"){
+    } else if (request.method === "delete") {
+        notification = openidm.read("repo/ui/notification/"+request.resourceName);
         
-        notification = openidm.read("repo/ui/notification/"+request.parent.query.notificationId);
-        
-        if(notification.receiverId === request.parent.security.userid.id) {
+        if(notification.receiverId === userId) {
             openidm['delete']('repo/ui/notification/' + notification._id, notification._rev);
         } else {
             throw { 
-                "openidmCode" : 403, 
+                "code" : 403,
                 "message" : "Access denied"
             };
         }
         
     } else {
         throw { 
-            "openidmCode" : 403, 
+            "code" : 403,
             "message" : "Access denied"
         };
     }

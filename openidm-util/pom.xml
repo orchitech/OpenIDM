@@ -2,7 +2,7 @@
 <!--
   ~ DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS HEADER.
   ~
-  ~ Copyright (c) 2011-2012 ForgeRock AS. All Rights Reserved
+  ~ Copyright (c) 2011-2013 ForgeRock AS. All Rights Reserved
   ~
   ~ The contents of this file are subject to the terms
   ~ of the Common Development and Distribution License
@@ -27,13 +27,14 @@
     <parent>
         <groupId>org.forgerock.openidm</groupId>
         <artifactId>openidm-project</artifactId>
-        <version>2.1.0-SNAPSHOT</version>
+        <version>2.2.0-SNAPSHOT</version>
     </parent>
     <artifactId>openidm-util</artifactId>
-    <name>OpenIDM utility classes</name>
     <packaging>bundle</packaging>
+    <name>OpenIDM Utility Bundle</name>
+    <description>This bundle contains the common utilities</description>
     <properties>
-        <!--<openidm.osgi.import.defaults>org.eclipse.wst.jsdt.debug.rhino.debugger;resolution:=optional</openidm.osgi.import.defaults>-->
+        <openidm.osgi.import.defaults>org.eclipse.wst.jsdt.debug.rhino.debugger;resolution:=optional</openidm.osgi.import.defaults>
     </properties>
     <dependencies>
         <dependency>
@@ -42,57 +43,27 @@
         </dependency>
         <dependency>
             <groupId>org.forgerock.commons</groupId>
-            <artifactId>json-crypto-core</artifactId>
+            <artifactId>json-crypto</artifactId>
         </dependency>
         <dependency>
             <groupId>org.forgerock.commons</groupId>
-            <artifactId>org.forgerock.json.resource</artifactId>
+            <artifactId>json-resource</artifactId>
         </dependency>
         <dependency>
             <groupId>org.forgerock.commons</groupId>
-            <artifactId>forgerock-util</artifactId>
+            <artifactId>json-resource-servlet</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.forgerock.commons</groupId>
+            <artifactId>i18n-slf4j</artifactId>
         </dependency>
         <dependency>
             <groupId>org.forgerock.openidm</groupId>
             <artifactId>openidm-system</artifactId>
             <version>${openidm.version}</version>
         </dependency>
-        <dependency>
-            <groupId>org.forgerock.openidm</groupId>
-            <artifactId>openidm-smartevent</artifactId>
-            <version>${openidm.version}</version>
-            <scope>provided</scope>
-        </dependency>
-        <dependency>
-            <groupId>org.eclipse.wst.jsdt.debug</groupId>
-            <artifactId>rhino.debugger</artifactId>
-            <version>1.0.300.v201109150503</version>
-            <scope>provided</scope>
-            <optional>true</optional>
-        </dependency>
-        <dependency>
-            <groupId>org.apache.servicemix.bundles</groupId>
-            <artifactId>org.apache.servicemix.bundles.rhino</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>org.apache.felix</groupId>
-            <artifactId>org.apache.felix.framework</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>org.apache.felix</groupId>
-            <artifactId>org.osgi.compendium</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>org.apache.felix</groupId>
-            <artifactId>org.apache.felix.fileinstall</artifactId>
-            <scope>provided</scope>
-            <optional>true</optional>
-        </dependency>
-        <dependency>
-            <groupId>org.apache.felix</groupId>
-            <artifactId>org.apache.felix.scr.annotations</artifactId>
-            <scope>provided</scope>
-        </dependency>
+
+
         <dependency>
             <groupId>org.apache.commons</groupId>
             <artifactId>commons-lang3</artifactId>
@@ -102,34 +73,73 @@
             <artifactId>joda-time</artifactId>
             <version>2.1</version>
         </dependency>
-
         <dependency>
-            <groupId>org.slf4j</groupId>
-            <artifactId>slf4j-api</artifactId>
+            <groupId>com.fasterxml.jackson.module</groupId>
+            <artifactId>jackson-module-afterburner</artifactId>
+        </dependency>
+
+        <!-- Provided OSGi Dependencies -->
+        <dependency>
+            <groupId>org.osgi</groupId>
+            <artifactId>org.osgi.core</artifactId>
+            <scope>provided</scope>
+        </dependency>
+        <!-- TODO Remove org.apache.felix.framework with Compendium 4.3 -->
+        <dependency>
+            <groupId>org.apache.felix</groupId>
+            <artifactId>org.apache.felix.framework</artifactId>
+            <scope>provided</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.osgi</groupId>
+            <artifactId>org.osgi.compendium</artifactId>
+            <scope>provided</scope>
+        </dependency>
+
+        <!-- Provided Dependencies -->
+        <dependency>
+            <groupId>org.apache.felix</groupId>
+            <artifactId>org.apache.felix.scr.annotations</artifactId>
+            <scope>provided</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.forgerock.openidm</groupId>
+            <artifactId>openidm-smartevent</artifactId>
+            <version>${openidm.version}</version>
+            <scope>provided</scope>
         </dependency>
 
         <!-- Test Dependencies -->
-        <dependency>
-            <groupId>org.easytesting</groupId>
-            <artifactId>fest-assert</artifactId>
-            <scope>test</scope>
-        </dependency>
         <dependency>
             <groupId>org.testng</groupId>
             <artifactId>testng</artifactId>
             <scope>test</scope>
         </dependency>
+        <dependency>
+            <groupId>org.easytesting</groupId>
+            <artifactId>fest-assert-core</artifactId>
+            <scope>test</scope>
+        </dependency>
     </dependencies>
     <build>
-        <resources>
-            <resource>
-                <directory>${basedir}/src/main/java</directory>
-                <includes>
-                    <include>META-INF/**/*</include>
-                </includes>
-            </resource>
-        </resources>
         <plugins>
+            <plugin>
+                <groupId>org.forgerock.commons</groupId>
+                <artifactId>i18n-maven-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <phase>generate-sources</phase>
+                        <goals>
+                            <goal>generate-messages</goal>
+                        </goals>
+                        <configuration>
+                            <messageFiles>
+                                <messageFile>org/forgerock/openidm/util/resource.properties</messageFile>
+                            </messageFiles>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
             <plugin>
                 <groupId>org.apache.felix</groupId>
                 <artifactId>maven-scr-plugin</artifactId>
@@ -148,25 +158,8 @@
                 <extensions>true</extensions>
                 <configuration>
                     <instructions>
-                        <!-- Felix (with <=4.2.1) has some trouble attaching fragments if a bundle is already resolved. Start order doesn't always resolve this if resolution is triggered through references. To allow attaching fragments to the rhino script engine, we delay resolving it by accessing via dynamic import instead -->
-                        <DynamicImport-Package>
-                            org.eclipse.wst.jsdt.debug.rhino.debugger,
-                            org.mozilla.javascript,
-                            org.mozilla.javascript.tools.shell
-                        </DynamicImport-Package>
-                        <Export-Package>
-                            org.forgerock.openidm.audit.util;version=${openidm.version},
-                            org.forgerock.openidm.crypto;version=${openidm.version},
-                            org.forgerock.openidm.metadata;version=${openidm.version},
-                            org.forgerock.openidm.objset;version=${openidm.version},
-                            org.forgerock.openidm.osgi;version=${openidm.version},
-                            org.forgerock.openidm.patch;version=${openidm.version},
-                            org.forgerock.openidm.scope;version=${openidm.version},
-                            org.forgerock.openidm.script;version=${openidm.version},
-                            org.forgerock.openidm.script.javascript;version=${openidm.version},
-                            org.forgerock.openidm.sync;version=${openidm.version},
-                            org.forgerock.openidm.util;version=${openidm.version}
-                        </Export-Package>
+                        <Bundle-Activator>org.forgerock.openidm.router.Activator</Bundle-Activator>
+                        <Bundle-Category>utility</Bundle-Category>
                     </instructions>
                 </configuration>
             </plugin>

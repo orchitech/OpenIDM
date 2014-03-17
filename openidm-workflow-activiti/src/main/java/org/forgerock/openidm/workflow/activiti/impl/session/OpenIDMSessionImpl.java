@@ -23,7 +23,8 @@
  */
 package org.forgerock.openidm.workflow.activiti.impl.session;
 
-import org.forgerock.openidm.objset.ObjectSet;
+import org.forgerock.json.resource.PersistenceConfig;
+import org.forgerock.script.ScriptRegistry;
 
 /**
  * Custom Session providing access to OpenIDM functions from Activiti
@@ -31,23 +32,15 @@ import org.forgerock.openidm.objset.ObjectSet;
  */
 public class OpenIDMSessionImpl implements OpenIDMSession {
 
-    private ObjectSet router;
+    private PersistenceConfig persistenceConfig;
+    private ScriptRegistry scriptRegistry;
 
     public OpenIDMSessionImpl() {
     }
 
-    public OpenIDMSessionImpl(ObjectSet router) {
-        this.router = router;
-    }
-
-    @Override
-    public ObjectSet getOpenIDM() {
-        return router;
-    }
-
-    @Override
-    public void setOpenIDM(ObjectSet router) {
-        this.router = router;
+    public OpenIDMSessionImpl(PersistenceConfig persistenceConfig, ScriptRegistry scriptRegistry) {
+        this.persistenceConfig = persistenceConfig;
+        this.scriptRegistry = scriptRegistry;
     }
 
     @Override
@@ -56,5 +49,25 @@ public class OpenIDMSessionImpl implements OpenIDMSession {
 
     @Override
     public void close() {
+    }
+
+    @Override
+    public PersistenceConfig getOpenIDMPersistenceConfig() {
+        return persistenceConfig;
+    }
+
+    @Override
+    public void setOpenIDMPersistenceConfig(PersistenceConfig persistenceConfig) {
+        this.persistenceConfig = persistenceConfig;
+    }
+
+    @Override
+    public ScriptRegistry getOpenIDMScriptRegistry() {
+        return scriptRegistry;
+    }
+
+    @Override
+    public void setOpenIDMScriptRegistry(ScriptRegistry scriptRegistry) {
+        this.scriptRegistry = scriptRegistry;
     }
 }

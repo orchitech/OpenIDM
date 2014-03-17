@@ -21,7 +21,6 @@
  * your own identifying information:
  * "Portions Copyrighted [year] [name of copyright owner]"
  */
-
 package org.forgerock.openidm.workflow.activiti.impl;
 
 import java.util.HashMap;
@@ -30,12 +29,14 @@ import org.activiti.engine.delegate.JavaDelegate;
 import org.activiti.engine.delegate.VariableScope;
 import org.activiti.engine.impl.bpmn.data.ItemInstance;
 import org.activiti.engine.impl.el.ExpressionManager;
+import org.activiti.engine.impl.el.ReadOnlyMapELResolver;
 import org.activiti.engine.impl.el.VariableScopeElResolver;
 import org.activiti.engine.impl.javax.el.*;
 import org.osgi.service.component.ComponentConstants;
 
 /**
  * Custom ExpressionManager for resolving 'openidm' variable in expressions
+ *
  * @author orsolyamebold
  */
 public class OpenIDMExpressionManager extends ExpressionManager {
@@ -43,7 +44,9 @@ public class OpenIDMExpressionManager extends ExpressionManager {
     
     public void bindService(JavaDelegate delegate, Map props) {
         String name = (String) props.get(ComponentConstants.COMPONENT_NAME);
-
+        if (name == null) { //handle blueprint services as well
+            name = (String) props.get("osgi.service.blueprint.compname");
+        }
         if (name != null) {
             delegateMap.put(name, delegate);
         }
@@ -58,15 +61,21 @@ public class OpenIDMExpressionManager extends ExpressionManager {
 
     @Override
     protected ELResolver createElResolver(VariableScope variableScope) {
-        CompositeELResolver compositeElResolver = new CompositeELResolver();
-        compositeElResolver.add(new VariableScopeElResolver(variableScope));
-        compositeElResolver.add(new OpenIDMELResolver(delegateMap));
-        compositeElResolver.add(new ArrayELResolver());
-        compositeElResolver.add(new ListELResolver());
-        compositeElResolver.add(new MapELResolver());
-        compositeElResolver.add(new DynamicBeanPropertyELResolver(ItemInstance.class, "getFieldValue", "setFieldValue")); //TODO: needs verification
-        compositeElResolver.add(new BeanELResolver());
-        return compositeElResolver;
-    }
+        CompositeELResolver elResolver = new CompositeELResolver();
+        elResolver.add(new VariableScopeElResolver(variableScope));
+        elResolver.add(new OpenIDMELResolver(delegateMap));
 
+        if(beans != null) {
+        // ACT-1102: Also expose all beans in configuration when using standalone activiti, not
+        // in spring-context
+        elResolver.add(new ReadOnlyMapELResolver(beans));
+        }
+
+        elResolver.add(new ArrayELResolver());
+        elResolver.add(new ListELResolver());
+        elResolver.add(new MapELResolver());
+        elResolver.add(new DynamicBeanPropertyELResolver(ItemInstance.class, "getFieldValue", "setFieldValue")); //TODO: needs verification
+        elResolver.add(new BeanELResolver());
+        return elResolver;
+    }
 }

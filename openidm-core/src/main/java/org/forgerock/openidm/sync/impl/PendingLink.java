@@ -20,29 +20,27 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Map;
 
+import org.forgerock.json.resource.Context;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import org.forgerock.json.fluent.JsonValue;
 import org.forgerock.json.fluent.JsonValueException;
-import org.forgerock.json.resource.JsonResourceContext;
 
-import org.forgerock.openidm.objset.ObjectSetContext;
-import org.forgerock.openidm.sync.SynchronizationException;
 
 /**
  * Pending link handling
- * Helps establish links as soon as target identifiers 
+ * Helps establish links as soon as target identifiers
  * become known.
  *
  * @author aegloff
  */
 class PendingLink {
-    
+
     private final static Logger logger = LoggerFactory.getLogger(PendingLink.class);
 
     private static final String PENDING_LINK = "pendingLink";
-    
+
     private static final String ORIGINAL_SITUATION = "originalSituation";
     private static final String RECON_ID = "reconId";
     private static final String SOURCE_OBJECT = "sourceObject";
@@ -51,7 +49,7 @@ class PendingLink {
 
     /**
      * Detect and handle pending links if present
-     * 
+     *
      * @param mappings all the mappings to scan
      * @param targetId the target identifier to link to
      * @param targetObject the full target object, useful for the onLink script
@@ -61,15 +59,15 @@ class PendingLink {
         // Detect if there is a pending link
         JsonValue pendingLink = null;
         JsonValue pendingLinkContext = null;
-        JsonValue context = ObjectSetContext.get();
-        while ((pendingLink == null || pendingLink.isNull())  && context != null && !context.isNull()) {
-            pendingLink = context.get(PENDING_LINK);
-            if (pendingLink != null && !(pendingLink.isNull())) {
-                pendingLinkContext = context;
-                logger.debug("Pending link found in context {}", pendingLink);
-            }
-            context = JsonResourceContext.getParentContext(context);
-        }
+        Context context = ObjectSetContext.get();
+//        while ((pendingLink == null || pendingLink.isNull())  && context != null && !context.isNull()) {
+//            pendingLink = context.get(PENDING_LINK);
+//            if (pendingLink != null && !(pendingLink.isNull())) {
+//                pendingLinkContext = context;
+//                logger.debug("Pending link found in context {}", pendingLink);
+//            }
+//            context = context.getParent();
+//        }
 
         // Find right object mapping and create the link
         if (pendingLink != null && !(pendingLink.isNull())) {
@@ -79,7 +77,7 @@ class PendingLink {
             String reconId = pendingLink.get(RECON_ID).asString();
             String origSituation = pendingLink.get(ORIGINAL_SITUATION).asString();
             Situation situation = Situation.valueOf(origSituation);
-            
+
             for (ObjectMapping mapping : mappings) {
                 if (mapping.getName().equals(mappingName) && targetId.startsWith(mapping.getTargetObjectSet() + "/")) {
                     logger.debug("Matching mapping {} found for pending link to {}", mappingName, targetId);
@@ -91,12 +89,12 @@ class PendingLink {
             }
         }
     }
-    
+
     /**
-     * Add pending link info to the context 
+     * Add pending link info to the context
      * @param context to add the pending link info to
      */
-    public static void populate(JsonValue context, String objectMappingName, String sourceId, JsonValue sourceObject, 
+    public static void populate(Context context, String objectMappingName, String sourceId, JsonValue sourceObject,
             String reconId, Situation situation) {
         Map<String, Object> pendingLink = new HashMap<String, Object>();
         pendingLink.put(MAPPING_NAME, objectMappingName);
@@ -104,35 +102,37 @@ class PendingLink {
         pendingLink.put(SOURCE_OBJECT, sourceObject);
         pendingLink.put(RECON_ID, reconId);
         pendingLink.put(ORIGINAL_SITUATION, situation.toString());
-        context.put(PENDING_LINK, pendingLink);
+        //TODO FIXME
+        //context.put(PENDING_LINK, pendingLink);
     }
-    
+
     /**
      * Remove the pending link info from the context because
      * it was processed or the caller is taking responsibility
-     * for it. 
-     * 
+     * for it.
+     *
      * @param context level to remove the pending link from
      */
-    public static void clear(JsonValue context) {
-        context.remove(PENDING_LINK);
+    public static void clear(Context context) {
+        //context.remove(PENDING_LINK);
     }
-    
+
     /**
      * Check if the pending link that was in the context
      * actually was linked
-     * 
-     * It's critical that the context passed in 
-     * originally was populated with the pending link info 
-     * to get an accurate response as it may use the absence 
-     * of the pending link info as a marker or the pending link 
+     *
+     * It's critical that the context passed in
+     * originally was populated with the pending link info
+     * to get an accurate response as it may use the absence
+     * of the pending link info as a marker or the pending link
      * having been processed and removed.
-     * 
+     *
      * @param context the context that originally had the pending link info
      * @return true if the pending link was linked, false if it still needs linking
      */
-    public static boolean wasLinked(JsonValue context) {
-        boolean wasLinked = !context.isDefined(PENDING_LINK);
+    public static boolean wasLinked(Context context) {
+        //TODO FIXME
+        boolean wasLinked = false; //!context.isDefined(PENDING_LINK);
         return wasLinked;
     }
 

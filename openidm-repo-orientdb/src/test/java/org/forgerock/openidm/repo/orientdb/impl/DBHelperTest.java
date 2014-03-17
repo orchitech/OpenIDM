@@ -35,8 +35,8 @@ import com.orientechnologies.orient.server.OServerMain;
 import org.forgerock.json.fluent.JsonValue;
 import org.testng.annotations.*;
 import static org.testng.Assert.*;
-import static org.fest.assertions.Assertions.assertThat;
-import static org.fest.assertions.MapAssert.entry;
+import static org.fest.assertions.api.Assertions.assertThat;
+//import static org.fest.assertions.api.MapAssert.entry;
 
 public class DBHelperTest {
 
@@ -52,6 +52,7 @@ public class DBHelperTest {
         assertNotNull(pool);
         ODatabaseDocumentTx db = pool.acquire(dbURL, user, password);
         assertNotNull(db);
+        db.drop();
         db.close();
         DBHelper.closePools();
     }
@@ -71,7 +72,9 @@ public class DBHelperTest {
         assertNotNull(pool);
         ODatabaseDocumentTx db = pool.acquire(dbURL, newUser, newPassword);
         assertNotNull(db);
+        db.drop();
         db.close();
         DBHelper.closePools();
     }
+
 }

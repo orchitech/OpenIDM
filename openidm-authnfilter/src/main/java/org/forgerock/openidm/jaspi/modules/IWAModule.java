@@ -85,13 +85,13 @@ public class IWAModule extends IDMServerAuthModule {
      * @param messageInfo {@inheritDoc}
      * @param clientSubject {@inheritDoc}
      * @param serviceSubject {@inheritDoc}
-     * @param authData {@inheritDoc}
+     * @param securityContextMapper {@inheritDoc}
      * @return {@inheritDoc}
      * @throws AuthException {@inheritDoc}
      */
     @Override
     protected AuthStatus validateRequest(MessageInfo messageInfo, Subject clientSubject, Subject serviceSubject,
-            AuthData authData) throws AuthException {
+            SecurityContextMapper securityContextMapper) throws AuthException {
 
         LOGGER.debug("IWAModule: validateRequest START");
 
@@ -124,10 +124,10 @@ public class IWAModule extends IDMServerAuthModule {
                 LOGGER.error("IWAModule: Username not found by IWA");
                 throw new AuthException("Could not get username");
             }
+            securityContextMapper.setUsername(username);
             // Need to set as much information as possible so it can be put in both the request and JWT for IDM
             // and later use
-            authData.setUsername(username);
-            authData.setResource("system/AD/account");
+            securityContextMapper.setResource("system/AD/account");
 
             LOGGER.debug("IWAModule: Successful log in with user, {}", username);
 
@@ -152,7 +152,7 @@ public class IWAModule extends IDMServerAuthModule {
      */
     @Override
     public AuthStatus secureResponse(MessageInfo messageInfo, Subject serviceSubject) {
-        return super.secureResponse(messageInfo, serviceSubject);
+        return AuthStatus.SEND_SUCCESS;
     }
 
     /**

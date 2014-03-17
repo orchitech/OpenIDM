@@ -31,16 +31,14 @@ import com.orientechnologies.orient.core.sql.query.OSQLSynchQuery;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.regex.Pattern;
 
-import org.forgerock.openidm.objset.BadRequestException;
-import org.forgerock.openidm.objset.ObjectSetException;
+import org.forgerock.json.resource.BadRequestException;
+import org.forgerock.json.resource.QueryRequest;
 import org.forgerock.openidm.repo.QueryConstants;
 import org.forgerock.openidm.repo.orientdb.impl.OrientDBRepoService;
 import org.forgerock.openidm.smartevent.EventEntry;
 import org.forgerock.openidm.smartevent.Name;
 import org.forgerock.openidm.smartevent.Publisher;
-
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -72,27 +70,28 @@ public class Queries {
      * The keys for the input parameters as well as the return map entries are in QueryConstants.
      * 
      * @param type the relative/local resource name, which needs to be converted to match the OrientDB document class name
-     * @param params the parameters which include the query id, or the query expression, as well as the 
+     * @param request the query request, including parameters which include the query id, or the query expression, as well as the 
      *        token key/value pairs to replace in the query
      * @param database a handle to a database connection instance for exclusive use by the query method whilst it is executing.
      * @return The query result, which includes meta-data about the query, and the result set itself.
      * @throws BadRequestException if the passed request parameters are invalid, e.g. missing query id or query expression or tokens.
      */
-    public List<ODocument> query(final String type, Map<String, Object> params, ODatabaseDocumentTx database) 
+    public List<ODocument> query(final String type, QueryRequest request, ODatabaseDocumentTx database) 
             throws BadRequestException {
-        
+                
+        Map<String, String> params = request.getAdditionalParameters();
         String orientClassName = OrientDBRepoService.typeToOrientClassName(type);
         
         List<ODocument> result = null;
         QueryInfo foundQueryInfo = null;
         params.put(QueryConstants.RESOURCE_NAME, orientClassName); 
         
-        String queryExpression = (String) params.get(QueryConstants.QUERY_EXPRESSION);
+        String queryExpression = request.getQueryExpression();
         String queryId = null;
         if (queryExpression != null) {
-            foundQueryInfo = resolveInlineQuery(type, params, database);
+            foundQueryInfo = resolveInlineQuery(type, queryExpression, database);
         } else {
-            queryId = (String) params.get(QueryConstants.QUERY_ID);
+            queryId = request.getQueryId();
             if (queryId == null) {
                 throw new BadRequestException("Either " + QueryConstants.QUERY_ID + " or " + QueryConstants.QUERY_EXPRESSION
                         + " to identify/define a query must be passed in the parameters. " + params);
@@ -206,7 +205,7 @@ public class Queries {
      * @return the query with any found tokens replaced
      * @throws BadRequestException if the queryString contains token missing from params
      */
-    protected OSQLSynchQuery<ODocument> resolveQuery(String queryString, Map<String,Object> params)
+    protected OSQLSynchQuery<ODocument> resolveQuery(String queryString, Map<String, String> params)
             throws BadRequestException {
         String resolvedQueryString = tokenHandler.replaceTokensWithValues(queryString, params);
         return new OSQLSynchQuery<ODocument>(resolvedQueryString);
@@ -216,14 +215,13 @@ public class Queries {
      * Populate and prepare the query information with the query expression passed in the parameters
      *
      * @param type the relative/local resource name
-     * @param params the parameters with the query expression and token replacement key/values
+     * @param queryExpression the parameters with the query expression and token replacement key/values
      * @param database a handle to a OrientDB db that is available for exclusive use during the invocation of this method
      * @return the populated query info
      */
-    protected QueryInfo resolveInlineQuery(final String type, Map<String, Object> params, ODatabaseDocumentTx database ) {
+    protected QueryInfo resolveInlineQuery(final String type, String queryExpression, ODatabaseDocumentTx database ) {
         // TODO: LRU cache
-        String queryString = (String) params.get(QueryConstants.QUERY_EXPRESSION);
-        return  prepareQuery(queryString);
+        return  prepareQuery(queryExpression);
     }
 
     /**

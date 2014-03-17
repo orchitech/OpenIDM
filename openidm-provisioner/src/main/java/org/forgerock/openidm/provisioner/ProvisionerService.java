@@ -27,9 +27,7 @@
 package org.forgerock.openidm.provisioner;
 
 import org.forgerock.json.fluent.JsonValue;
-import org.forgerock.json.resource.JsonResource;
-import org.forgerock.json.resource.JsonResourceException;
-import org.forgerock.openidm.sync.SynchronizationListener;
+import org.forgerock.json.resource.ResourceException;
 
 import java.util.Map;
 
@@ -38,7 +36,7 @@ import java.util.Map;
  * @author $author$
  * @version $Revision$ $Date$
  */
-public interface ProvisionerService extends JsonResource {
+public interface ProvisionerService {
 
     /**
      * Gets the unique {@link SystemIdentifier} of this instance.
@@ -69,8 +67,9 @@ public interface ProvisionerService extends JsonResource {
      * Synchronise the changes from the end system for the given {@code objectType}.
      * <p/>
      * OpenIDM takes active role in the synchronisation process by asking the end system to get all changed object.
-     * Not all system is capable to fulfill this kind of request but if the end system is capable then the implementation
-     * send each changes to the {@link SynchronizationListener} and when it finished it return a new <b>stage</b> object.
+     * Not all systems are capable to fulfill this kind of request but if the end system is capable then the
+     * implementation sends each change to a new request on the router and when it is finished, it returns
+     * a new <b>stage</b> object.
      * <p/>
      * The {@code previousStage} object is the previously returned value of this method.
      * Unhandled exception will result not to update the stage object in repository.
@@ -79,10 +78,8 @@ public interface ProvisionerService extends JsonResource {
      *
      * @param objectType
      * @param previousStage           The previously returned object. If null then it's the first execution.
-     * @param synchronizationListener The listener to send the changes to.
      * @return The new updated stage object. This will be the {@code previousStage} at next call.
-     * @throws JsonResourceException if a failure occurred during live sync
+     * @throws ResourceException if a failure occurred during live sync
      */
-    public JsonValue liveSynchronize(String objectType, JsonValue previousStage, final SynchronizationListener synchronizationListener)
-            throws JsonResourceException;
+    public JsonValue liveSynchronize(String objectType, JsonValue previousStage) throws ResourceException;
 }

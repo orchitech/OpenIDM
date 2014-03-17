@@ -1,7 +1,7 @@
 /*
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS HEADER.
  *
- * Copyright © 2011 ForgeRock AS. All rights reserved.
+ * Copyright (c) 2011-2013 ForgeRock AS. All Rights Reserved
  *
  * The contents of this file are subject to the terms
  * of the Common Development and Distribution License
@@ -20,21 +20,26 @@
  * with the fields enclosed by brackets [] replaced by
  * your own identifying information:
  * "Portions Copyrighted [year] [name of copyright owner]"
- * $Id$
  */
+
 package org.forgerock.openidm.provisioner.openicf.commons;
 
+import org.apache.commons.lang3.StringUtils;
 import org.forgerock.json.crypto.JsonCryptoException;
+import org.forgerock.json.fluent.JsonPointer;
 import org.forgerock.json.fluent.JsonValue;
-import org.forgerock.json.resource.JsonResourceException;
+import org.forgerock.json.resource.BadRequestException;
+import org.forgerock.json.resource.CreateRequest;
+import org.forgerock.json.resource.Resource;
+import org.forgerock.json.resource.ResourceException;
+import org.forgerock.json.resource.UpdateRequest;
 import org.forgerock.json.schema.validator.Constants;
-import org.forgerock.json.schema.validator.exceptions.SchemaException;
 import org.forgerock.openidm.core.ServerConstants;
 import org.forgerock.openidm.crypto.CryptoService;
 import org.forgerock.openidm.provisioner.Id;
 import org.identityconnectors.common.CollectionUtil;
-import org.identityconnectors.common.Pair;
 import org.identityconnectors.common.StringUtil;
+import org.identityconnectors.common.security.GuardedString;
 import org.identityconnectors.framework.api.operations.APIOperation;
 import org.identityconnectors.framework.api.operations.CreateApiOp;
 import org.identityconnectors.framework.api.operations.UpdateApiOp;
@@ -47,14 +52,19 @@ import java.io.IOException;
 import java.util.*;
 
 /**
- * @author $author$
- * @version $Revision$ $Date$
+ *
+ * @author Laszlo Hordos
  */
 public class ObjectClassInfoHelper {
+
+    /**
+     * Setup logging for the {@link ObjectClassInfoHelper}.
+     */
     private final static Logger logger = LoggerFactory.getLogger(ObjectClassInfoHelper.class);
-    private final Set<AttributeInfoHelper> attributes;
+
     private final ObjectClass objectClass;
-    private String nameAttribute = null;
+    private final String nameAttribute;
+    private final Set<AttributeInfoHelper> attributes;
     private final Set<String> attributesReturnedByDefault;
 
     /**
@@ -62,34 +72,53 @@ public class ObjectClassInfoHelper {
      *
      * @param schema string representation for the name of the object class.
      * @throws IllegalArgumentException when objectClass is null
-     * @throws org.forgerock.json.schema.validator.exceptions.SchemaException
+     * @throws org.forgerock.json.fluent.JsonValueException
      *
      */
-    public ObjectClassInfoHelper(Map<String, Object> schema) throws SchemaException {
-        objectClass = new ObjectClass((String) schema.get(ConnectorUtil.OPENICF_OBJECT_CLASS));
-        Map<String, Object> properties = (Map<String, Object>) schema.get(Constants.PROPERTIES);
-        attributes = new HashSet<AttributeInfoHelper>(properties.size());
-        Set<String> defaultAttributes = new HashSet<String>(properties.size());
-        for (Map.Entry<String, Object> e : properties.entrySet()) {
-            AttributeInfoHelper helper = new AttributeInfoHelper(e.getKey(), false, (Map<String, Object>) e.getValue());
+    public ObjectClassInfoHelper(JsonValue schema) {
+        //Expect ObjectClass
+        objectClass = new ObjectClass(schema.get(ConnectorUtil.OPENICF_OBJECT_CLASS).required().asString());
+
+        //Expect Properties Map
+        JsonValue properties = schema.get(Constants.PROPERTIES).required().expect(Map.class);
+        Set<String> propertyNames = properties.keys();
+
+        Set<AttributeInfoHelper> attributes0 = new HashSet<AttributeInfoHelper>(propertyNames.size());
+        Set<String> defaultAttributes = new HashSet<String>(propertyNames.size());
+        String __NAME__ = null;
+
+        for (String propertyName : propertyNames) {
+            AttributeInfoHelper helper = new AttributeInfoHelper(propertyName, false, properties.get(propertyName));
             if (helper.getAttributeInfo().getName().equals(Name.NAME)) {
-                nameAttribute = e.getKey();
+                __NAME__ = propertyName;
             }
             if (helper.getAttributeInfo().isReturnedByDefault()) {
                 defaultAttributes.add(helper.getAttributeInfo().getName());
             }
-            attributes.add(helper);
+            attributes0.add(helper);
         }
+        //TODO Should we throw exceptions or ??
+        if (null == __NAME__) {
+            logger.warn("Required __NAME__ attribute definition is not configured. The CREATE operation will be disabled");
+            //throw new IllegalArgumentException("Required __NAME__ attribute is not configured");
+        }
+        nameAttribute = __NAME__;
+        attributes = Collections.unmodifiableSet(attributes0);
         attributesReturnedByDefault = CollectionUtil.newReadOnlySet(defaultAttributes);
     }
 
     /**
-     * Get a new instance of the {@link org.identityconnectors.framework.common.objects.ObjectClass} for this schema.
+     * Get a new newBuilder of the {@link org.identityconnectors.framework.common.objects.ObjectClass} for this schema.
      *
-     * @return new instance of {@link org.identityconnectors.framework.common.objects.ObjectClass}
+     * @return new newBuilder of {@link org.identityconnectors.framework.common.objects.ObjectClass}
      */
     public ObjectClass getObjectClass() {
         return objectClass;
+    }
+
+
+    public boolean isCreateable() {
+        return null != nameAttribute;
     }
 
     /**
@@ -103,31 +132,166 @@ public class ObjectClassInfoHelper {
         return attributesReturnedByDefault;
     }
 
+    public boolean setAttributesToGet(final OperationOptionsBuilder builder,
+            final List<JsonPointer> fieldFilters) {
+        boolean returnResource = false;
+        if (null != fieldFilters) {
+            for (JsonPointer field : fieldFilters) {
+                if (field.isEmpty() || returnResource || !Resource.FIELD_CONTENT_ID.equals(field.leaf()) || !Resource.FIELD_CONTENT_REVISION.equals(field.leaf())){
+                    returnResource = true;
+                }
+                if (field.isEmpty()) {
+                    builder.setAttributesToGet(attributesReturnedByDefault);
+                    continue;
+                }
+                for (AttributeInfoHelper attribute : attributes) {
+                    if (attribute.getName().equals(field.leaf())) {
+                        builder.setAttributesToGet(attribute.getAttributeInfo().getName());
+                        break;
+                    }
+                }
+            }
+        }
+        return returnResource;
+    }
+
+
+    //TODO throw-catch exceptions if type is not match
+    public Attribute filterAttribute(JsonPointer field, Object valueAssertion) {
+      if (field.size() != 1){
+          throw new IllegalArgumentException("Only one level JsonPointer supported");
+      }
+        String attributeName = field.leaf();
+
+       for (AttributeInfoHelper ai: attributes){
+          if (ai.getName().equals(attributeName)) {
+              return ai.build(valueAssertion);
+          }
+       }
+       return null;
+    }
+
+    public Set<Attribute> getCreateAttributes(final CreateRequest request,
+            final CryptoService cryptoService) throws ResourceException {
+        JsonValue content = request.getContent().required().expect(Map.class);
+        String nameValue = request.getNewResourceId();
+
+        if (null == nameValue) {
+            JsonValue o = content.get(nameAttribute);
+            if (o.isNull()) {
+                o = content.get(Resource.FIELD_CONTENT_ID);
+            }
+            if (o.isString()) {
+                nameValue = o.asString();
+            }
+        }
+
+        if (StringUtils.isBlank(nameValue)) {
+            throw new BadRequestException("Required '_id' or '" + nameAttribute
+                    + "' attribute is missing");
+        }
+
+        Set<String> keySet = content.keys();
+        Map<String,Attribute> result = new HashMap<String, Attribute>(keySet.size());
+        result.put(Name.NAME, new Name(nameValue));
+        for (AttributeInfoHelper attributeInfo : attributes) {
+            if (Name.NAME.equals(attributeInfo.getAttributeInfo().getName())
+                    || Uid.NAME.equals(attributeInfo.getAttributeInfo().getName())
+                    || !keySet.contains(attributeInfo.getName())) {
+                continue;
+            }
+            if (attributeInfo.getAttributeInfo().isCreateable()) {
+                JsonValue v = content.get(attributeInfo.getName());
+                if (v.isNull() && attributeInfo.getAttributeInfo().isRequired()) {
+                    throw new BadRequestException("Required attribute {" + attributeInfo.getName()
+                            + "} value is null");
+                }
+                Attribute a = attributeInfo.build(v, cryptoService);
+                if (null != a) {
+                    result.put(attributeInfo.getAttributeInfo().getName(), a);
+                }
+            }
+        }
+        if (logger.isTraceEnabled()) {
+            ConnectorObjectBuilder builder = new ConnectorObjectBuilder().addAttributes(result.values());
+            builder.setName(nameValue);
+            builder.setUid(nameValue);
+            logger.trace("Update ConnectorObject: {}", SerializerUtil.serializeXmlObject(builder
+                    .build(), false));
+        }
+        return new HashSet<Attribute>(result.values());
+    }
+
+    public Set<Attribute> getUpdateAttributes(final UpdateRequest request, final Name newName,
+            final CryptoService cryptoService) throws ResourceException {
+        JsonValue content = request.getContent().required().expect(Map.class);
+        Set<String> keySet = content.keys();
+
+        Map<String,Attribute> result = new HashMap<String, Attribute>(keySet.size());
+        if (null != newName) {
+            result.put(Name.NAME, newName);
+        }
+        for (AttributeInfoHelper attributeInfo : attributes) {
+            if ( Uid.NAME.equals(attributeInfo.getAttributeInfo().getName())
+                    || !keySet.contains(attributeInfo.getName())) {
+                continue;
+            }
+            if (attributeInfo.getAttributeInfo().isUpdateable()) {
+                Object v = content.get(attributeInfo.getName());
+                Attribute a = attributeInfo.build(v, cryptoService);
+                if (null != a) {
+                    result.put(attributeInfo.getAttributeInfo().getName(), a);
+                }
+            }
+        }
+        if (logger.isTraceEnabled()) {
+            ConnectorObjectBuilder builder = new ConnectorObjectBuilder().addAttributes(result.values());
+            if (null != newName) {
+                builder.setUid(newName.getName());
+            } else {
+                builder.setName("***");
+                builder.setUid("***");
+            }
+            logger.trace("Update ConnectorObject: {}", SerializerUtil.serializeXmlObject(builder
+                    .build(), false));
+        }
+        return new HashSet<Attribute>(result.values());
+    }
+
     /**
      * @param operation
+     * @param name
      * @param source
      * @param cryptoService
      * @return
      * @throws JsonResourceException if ID value can not be determined from the {@code source}
      */
-    public Pair<ObjectClass, Set<Attribute>> build(Class<? extends APIOperation> operation, JsonValue source, CryptoService cryptoService) throws Exception {
-        String nameValue = null;
+    public ConnectorObject build(Class<? extends APIOperation> operation, String name, JsonValue source, CryptoService cryptoService) throws Exception {
+        String nameValue = name;
 
-        JsonValue o = source.get(nameAttribute);
-        if (o.isString()) {
-            nameValue = Id.unescapeUid(o.asString());
+        if (null == nameValue) {
+            JsonValue o = source.get(Resource.FIELD_CONTENT_ID);
+            if (o.isNull()) {
+                o = source.get(nameAttribute);
+            }
+            if (o.isString()) {
+                nameValue = o.asString();
+            }
         }
 
-        if (CreateApiOp.class.isAssignableFrom(operation) && StringUtil.isBlank(o.asString())) {
-            throw new JsonResourceException(JsonResourceException.BAD_REQUEST, "Required NAME attribute is missing");
+        if (null == nameValue) {
+            throw new BadRequestException("Required NAME attribute is missing");
+        } else {
+            nameValue = Id.unescapeUid(nameValue);
+            logger.trace("Build ConnectorObject {} for {}", nameValue, operation.getSimpleName());
         }
-        logger.trace("Build ConnectorObject {} for {}", nameValue, operation.getSimpleName());
 
-
-        Map<String, Attribute> builder = new HashMap<String, Attribute>();
+        ConnectorObjectBuilder builder = new ConnectorObjectBuilder();
+        builder.setObjectClass(objectClass);
+        builder.setUid(nameValue);
+        builder.setName(nameValue);
         Set<String> keySet = source.required().asMap().keySet();
         if (CreateApiOp.class.isAssignableFrom(operation)) {
-            builder.put(Name.NAME, new Name(nameValue));
             for (AttributeInfoHelper attributeInfo : attributes) {
                 if (Name.NAME.equals(attributeInfo.getName()) || Uid.NAME.equals(attributeInfo.getName()) ||
                         !keySet.contains(attributeInfo.getName())) {
@@ -138,13 +302,10 @@ public class ObjectClassInfoHelper {
                     if (null == v && attributeInfo.getAttributeInfo().isRequired()) {
                         throw new IllegalArgumentException("Required attribute {" + attributeInfo.getName() + "} value is null");
                     }
-                    builder.put(attributeInfo.getName(), attributeInfo.build(v, cryptoService));
+                    builder.addAttribute(attributeInfo.build(v, cryptoService));
                 }
             }
         } else if (UpdateApiOp.class.isAssignableFrom(operation)) {
-            if (null != nameValue) {
-                builder.put(Name.NAME, new Name(nameValue));
-            }
             for (AttributeInfoHelper attributeInfo : attributes) {
                 if (Name.NAME.equals(attributeInfo.getName()) || Uid.NAME.equals(attributeInfo.getName()) ||
                         !keySet.contains(attributeInfo.getName())) {
@@ -152,7 +313,7 @@ public class ObjectClassInfoHelper {
                 }
                 if (attributeInfo.getAttributeInfo().isUpdateable()) {
                     Object v = source.get(attributeInfo.getName());
-                    builder.put(attributeInfo.getName(), attributeInfo.build(v, cryptoService));
+                    builder.addAttribute(attributeInfo.build(v, cryptoService));
                 }
             }
         } else {
@@ -162,13 +323,17 @@ public class ObjectClassInfoHelper {
                     continue;
                 }
                 Object v = source.get(attributeInfo.getName());
-                builder.put(attributeInfo.getName(), attributeInfo.build(v, cryptoService));
+                builder.addAttribute(attributeInfo.build(v, cryptoService));
             }
         }
-        return new Pair<ObjectClass, Set<Attribute>>(objectClass, new HashSet<Attribute>(builder.values()));
+        ConnectorObject result = builder.build();
+        if (logger.isTraceEnabled()) {
+            logger.trace("ConnectorObject build return: {}", SerializerUtil.serializeXmlObject(result, false));
+        }
+        return result;
     }
 
-    public JsonValue build(ConnectorObject source, CryptoService cryptoService) throws IOException, JsonCryptoException {
+    public Resource build(ConnectorObject source, CryptoService cryptoService) throws IOException, JsonCryptoException {
         if (null == source) {
             return null;
         }
@@ -182,12 +347,14 @@ public class ObjectClassInfoHelper {
                 result.put(attributeInfo.getName(), attributeInfo.build(attribute, cryptoService));
             }
         }
-        result.put(ServerConstants.OBJECT_PROPERTY_ID, Id.escapeUid(source.getUid().getUidValue()));
-        if (null != source.getUid().getRevision()) {
+        Uid uid = source.getUid();
+        // TODO are we going to escape ids?
+        result.put(Resource.FIELD_CONTENT_ID, /*Id.escapeUid(*/uid.getUidValue()/*)*/);
+        if (null != uid.getRevision()) {
             //System supports Revision
-            result.put(ServerConstants.OBJECT_PROPERTY_REV, source.getUid().getRevision());
+            result.put(Resource.FIELD_CONTENT_REVISION, uid.getRevision());
         }
-        return result;
+        return new Resource(uid.getUidValue(), uid.getRevision(), result );
     }
 
     public Attribute build(String attributeName, Object source, CryptoService cryptoService) throws Exception {

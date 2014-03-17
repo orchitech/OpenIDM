@@ -27,7 +27,7 @@ import java.util.List;
 
 /**
  * Information about a JDBC query
- * 
+ *
  * @author aegloff
  */
 final class QueryInfo {
@@ -46,7 +46,7 @@ final class QueryInfo {
     public String getQueryString() {
         return queryString;
     }
-    
+
     /**
      * @return the token names in the order they need to replaced
      * in the queryString

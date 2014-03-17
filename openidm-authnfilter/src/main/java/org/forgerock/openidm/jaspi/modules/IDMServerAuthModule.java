@@ -11,13 +11,26 @@
  * Header, with the fields enclosed by brackets [] replaced by your own identifying
  * information: "Portions copyright [year] [name of copyright owner]".
  *
- * Copyright 2013 ForgeRock Inc.
+ * Copyright 2013-2014 ForgeRock AS.
  */
 
 package org.forgerock.openidm.jaspi.modules;
 
+import org.forgerock.jaspi.runtime.JaspiRuntime;
 import org.forgerock.json.fluent.JsonValue;
+import org.forgerock.json.resource.ResourceException;
+import org.forgerock.json.resource.ServerContext;
+import org.forgerock.json.resource.ServiceUnavailableException;
+import org.forgerock.json.resource.servlet.SecurityContextFactory;
+import org.forgerock.openidm.jaspi.config.OSGiAuthnFilterBuilder;
+import static org.forgerock.openidm.servletregistration.ServletRegistration.SERVLET_FILTER_AUGMENT_SECURITY_CONTEXT;
+import org.forgerock.script.Script;
+import org.forgerock.script.ScriptEntry;
+import org.forgerock.script.exception.ScriptThrownException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
+import javax.script.ScriptException;
 import javax.security.auth.Subject;
 import javax.security.auth.callback.CallbackHandler;
 import javax.security.auth.message.AuthException;
@@ -27,6 +40,7 @@ import javax.security.auth.message.MessagePolicy;
 import javax.security.auth.message.module.ServerAuthModule;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
+import java.security.Principal;
 import java.util.Map;
 
 /**
@@ -35,11 +49,11 @@ import java.util.Map;
  * so OpenIDM can operate properly.
  *
  * @author Phill Cunnington
+ * @author brmiller
  */
 public abstract class IDMServerAuthModule implements ServerAuthModule {
 
-    //TODO change to CREST constant when IDM have been updated to use 2.0.0 version
-    public static final String CONTEXT_REQUEST_KEY = "org.forgerock.security.context";
+    private final static Logger logger = LoggerFactory.getLogger(IDMServerAuthModule.class);
 
     /** Authentication username header. */
     public static final String HEADER_USERNAME = "X-OpenIDM-Username";
@@ -51,23 +65,15 @@ public abstract class IDMServerAuthModule implements ServerAuthModule {
     public static final String NO_SESSION = "X-OpenIDM-NoSession";
 
     /** Attribute in session containing authenticated username. */
-    static final String USERNAME_ATTRIBUTE = "openidm.username";
-
-    /** Attribute in session containing authenticated userid. */
-    static final String USERID_ATTRIBUTE = "openidm.userid";
-
-    /** Attribute in session and request containing assigned roles. */
-    static final String ROLES_ATTRIBUTE = "openidm.roles";
-
-    /** Attribute in session containing user's resource (managed_user or internal_user). */
-    static final String RESOURCE_ATTRIBUTE = "openidm.resource";
-
-    /** Attribute in request to indicate to openidm down stream that an authentication filter has secured the request.*/
-    static final String OPENIDM_AUTHINVOKED = "openidm.authinvoked";
-
-    static final String OPENIDM_AUTH_STATUS = "openidm.auth.status";
+    public static final String USERNAME_ATTRIBUTE = "openidm.username";
 
     private String logClientIPHeader = null;
+
+    /** the auth module configuration */
+    protected JsonValue properties = new JsonValue(null);
+
+    /** an security context augmentation script, if configured */
+    private ScriptEntry augmentScript = null;
 
     /**
      * Extracts the "clientIPHeader" value from the json configuration.
@@ -81,11 +87,22 @@ public abstract class IDMServerAuthModule implements ServerAuthModule {
     @Override
     public final void initialize(MessagePolicy requestPolicy, MessagePolicy responsePolicy, CallbackHandler handler,
             Map options) throws AuthException {
-        JsonValue jsonValue = new JsonValue(options);
+        properties = new JsonValue(options);
 
-        logClientIPHeader = (String) options.get("clientIPHeader");
+        logClientIPHeader = properties.get("clientIPHeader").asString();
 
-        initialize(requestPolicy, responsePolicy, handler, jsonValue);
+        initialize(requestPolicy, responsePolicy, handler, properties);
+
+        JsonValue scriptConfig =  properties.get(SERVLET_FILTER_AUGMENT_SECURITY_CONTEXT);
+        if (!scriptConfig.isNull()) {
+            try {
+                augmentScript = OSGiAuthnFilterBuilder.getScriptRegistry().takeScript(scriptConfig);
+                logger.debug("Registered script {}", augmentScript);
+            } catch (ScriptException e) {
+                logger.error("{} when attempting to register script {}", new Object[] { e.toString(), scriptConfig, e});
+                throw new AuthException(e.toString()); // silly AuthException does not support chaining cause!!!
+            }
+        }
     }
 
     /**
@@ -114,7 +131,7 @@ public abstract class IDMServerAuthModule implements ServerAuthModule {
      * attributes/properties needed by the rest of OpenIDM are present so OpenIDM can operate properly.
      *
      * Attributes set on the HttpServletRequest and MessageInfo: openidm.userid, openidm.username, openidm.roles,
-     * openidm.resource, openidm.authinvoked
+     * openidm.resource.
      *
      * @param messageInfo {@inheritDoc}
      * @param clientSubject {@inheritDoc}
@@ -126,44 +143,58 @@ public abstract class IDMServerAuthModule implements ServerAuthModule {
     public final AuthStatus validateRequest(MessageInfo messageInfo, Subject clientSubject, Subject serviceSubject)
             throws AuthException {
 
-        AuthData authData = new AuthData();
-
         Map<String, Object> messageInfoParams = messageInfo.getMap();
-        Map<String, Object> contextMap = (Map<String, Object>) messageInfoParams.get(CONTEXT_REQUEST_KEY);
+        Map<String, Object> contextMap =
+                (Map<String, Object>) messageInfoParams.get(JaspiRuntime.ATTRIBUTE_AUTH_CONTEXT);
 
         // Add this properties so the AuditLogger knows whether to log the client IP in the header.
         messageInfoParams.put(IDMAuthenticationAuditLogger.LOG_CLIENT_IP_HEADER_KEY, logClientIPHeader);
 
-        AuthStatus authStatus;
-        try {
-            authStatus = validateRequest(messageInfo, clientSubject, serviceSubject, authData);
-        } catch (AuthException e) {
-            contextMap.put(OPENIDM_AUTH_STATUS, false);
-            throw e;
-        }
+        final SecurityContextMapper securityContextMapper = new SecurityContextMapper();
+        AuthStatus authStatus = validateRequest(messageInfo, clientSubject, serviceSubject, securityContextMapper);
+        clientSubject.getPrincipals().add(new Principal() {
+            public String getName() {
+                return securityContextMapper.getAuthcid();
+            }
+        });
 
         if (AuthStatus.SUCCESS.equals(authStatus)) {
-            HttpServletRequest request = (HttpServletRequest) messageInfo.getRequestMessage();
-
-            request.setAttribute(USERID_ATTRIBUTE, authData.getUserId());
-            request.setAttribute(USERNAME_ATTRIBUTE, authData.getUsername());
-            request.setAttribute(ROLES_ATTRIBUTE, authData.getRoles());
-            request.setAttribute(RESOURCE_ATTRIBUTE, authData.getResource());
-            request.setAttribute(OPENIDM_AUTHINVOKED, "authnfilter");
-
-            contextMap.put(OPENIDM_AUTHINVOKED, "authnfilter");
+            executeAugmentationScript(securityContextMapper);
         }
 
-        contextMap.put(USERID_ATTRIBUTE, authData.getUserId());
-        contextMap.put(USERNAME_ATTRIBUTE, authData.getUsername());
-        contextMap.put(ROLES_ATTRIBUTE, authData.getRoles());
-        contextMap.put(RESOURCE_ATTRIBUTE, authData.getResource());
-        boolean authSuccess = AuthStatus.SUCCESS.equals(authStatus) || AuthStatus.SEND_SUCCESS.equals(authStatus);
-        contextMap.put(OPENIDM_AUTH_STATUS, authSuccess);
+        contextMap.putAll(securityContextMapper.getAuthzid());
+        messageInfoParams.put(SecurityContextFactory.ATTRIBUTE_AUTHCID, securityContextMapper.getAuthcid());
 
         return authStatus;
     }
 
+    private void executeAugmentationScript(SecurityContextMapper securityContextMapper) throws AuthException {
+        if (null != augmentScript) {
+            try {
+                if (!augmentScript.isActive()) {
+                    throw new ServiceUnavailableException("Failed to execute inactive script: " + augmentScript.getName().toString());
+                }
+
+                // Create internal ServerContext chain for script-call
+                ServerContext context = OSGiAuthnFilterBuilder.getRouter().createServerContext();
+                final Script script = augmentScript.getScript(context);
+                // Pass auth module properties and SecurityContextWrapper details to augmentation script
+                script.put("properties", properties);
+                script.put("security", securityContextMapper.asJsonValue());
+                script.eval();
+            } catch (ScriptThrownException e) {
+                final ResourceException re = e.toResourceException(ResourceException.INTERNAL_ERROR, e.getMessage());
+                logger.error("{} when attempting to execute script {}", new Object[] { re.toString(), augmentScript.getName(), re});
+                throw new AuthException(re.getMessage()); // silly AuthException does not support chaining cause!!!
+            } catch (ScriptException e) {
+                logger.error("{} when attempting to execute script {}", new Object[] { e.toString(), augmentScript.getName(), e});
+                throw new AuthException(e.getMessage()); // silly AuthException does not support chaining cause!!!
+            } catch (ResourceException e) {
+                logger.error("{} when attempting to create server context", e.toString(), e);
+                throw new AuthException(e.getMessage()); // silly AuthException does not support chaining cause!!!
+            }
+        }
+    }
 
     /**
      * Implementers of this method must implement the logic required to validate the incoming request.
@@ -177,7 +208,6 @@ public abstract class IDMServerAuthModule implements ServerAuthModule {
      *                       validate the request. If the Subject is not null, the method implementation may add
      *                       additional Principals or credentials (pertaining to the recipient of the service request)
      *                       to the Subject.
-     * @param authData The AuthData object containing the authentication results.
      * @return An AuthStatus object representing the completion status of the processing performed by the method. The
      *          AuthStatus values that may be returned by this method are defined as follows:
      * <ul>
@@ -198,7 +228,7 @@ public abstract class IDMServerAuthModule implements ServerAuthModule {
      * (in messageInfo).
      */
     protected abstract AuthStatus validateRequest(MessageInfo messageInfo, Subject clientSubject,
-            Subject serviceSubject, AuthData authData) throws AuthException;
+            Subject serviceSubject, SecurityContextMapper securityContextMapper) throws AuthException;
 
     /**
      * Always returns AuthStatus.SEND_SUCCESS but checks to see if the request was made with the X-OpenIDM-NoSession
@@ -217,16 +247,6 @@ public abstract class IDMServerAuthModule implements ServerAuthModule {
 
         if (Boolean.parseBoolean(noSession)) {
             messageInfo.getMap().put("skipSession", true);
-        } else {
-            Map<String, Object> messageInfoParams = messageInfo.getMap();
-            Map<String, Object> contextMap = (Map<String, Object>) messageInfoParams.get(CONTEXT_REQUEST_KEY);
-
-            JsonValue authzid = new JsonValue(request.getAttribute("org.forgerock.security.authzid"));
-
-            contextMap.put(USERID_ATTRIBUTE, authzid.get("userid").get("id").asString());
-            contextMap.put(USERNAME_ATTRIBUTE, authzid.get("username").asString());
-            contextMap.put(ROLES_ATTRIBUTE, authzid.get("openidm-roles").asList(String.class));
-            request.setAttribute(CONTEXT_REQUEST_KEY, contextMap);
         }
 
         return AuthStatus.SEND_SUCCESS;

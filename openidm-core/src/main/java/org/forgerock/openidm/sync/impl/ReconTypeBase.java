@@ -1,7 +1,7 @@
 /**
 * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS HEADER.
 *
-* Copyright (c) 2013 ForgeRock AS. All Rights Reserved
+* Copyright (c) 2014 ForgeRock AS. All Rights Reserved
 *
 * The contents of this file are subject to the terms
 * of the Common Development and Distribution License
@@ -24,36 +24,42 @@
 */
 package org.forgerock.openidm.sync.impl;
 
-import java.util.ArrayList;
 import java.util.Collection;
-import java.util.Collections;
-import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 import org.forgerock.json.fluent.JsonValue;
 import org.forgerock.json.fluent.JsonValueException;
-import org.forgerock.openidm.objset.ObjectSetException;
-import org.forgerock.openidm.repo.QueryConstants;
-import org.forgerock.openidm.sync.SynchronizationException;
+import org.forgerock.json.resource.QueryRequest;
+import org.forgerock.json.resource.QueryResult;
 
+
+import org.forgerock.json.resource.QueryFilter;
+import org.forgerock.json.resource.QueryResultHandler;
+import org.forgerock.json.resource.Requests;
+import org.forgerock.json.resource.Resource;
+import org.forgerock.json.resource.ResourceException;
+import org.forgerock.openidm.core.ServerConstants;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
  * A base class for reconciliation type handling
- * 
+ *
  * @author aegloff
  */
 public abstract class ReconTypeBase implements ReconTypeHandler {
     private static final Logger logger = LoggerFactory.getLogger(ReconTypeBase.class);
-    
+
     ReconciliationContext reconContext;
     boolean runTargetPhase;
+    boolean allowEmptySourceSet;
 
-    public ReconTypeBase(ReconciliationContext reconContext, boolean defaultRunTargetPhase) {
+    public ReconTypeBase(ReconciliationContext reconContext, boolean defaultRunTargetPhase, boolean allowEmptySourceSet) {
         this.reconContext = reconContext;
-        
+        this.allowEmptySourceSet = allowEmptySourceSet;
+
         JsonValue runTargetPhaseCfg = calcEffectiveConfig("runTargetPhase");
         if (runTargetPhaseCfg.isNull()) {
             runTargetPhase = defaultRunTargetPhase;
@@ -62,9 +68,13 @@ public abstract class ReconTypeBase implements ReconTypeHandler {
         }
         logger.debug("runTargetPhase: {}", runTargetPhase);
     }
-    
+
     public boolean isRunTargetPhase() {
         return runTargetPhase;
+    }
+    
+    public boolean allowEmptySourceSet() {
+        return allowEmptySourceSet;
     }
 
     /**
@@ -76,60 +86,62 @@ public abstract class ReconTypeBase implements ReconTypeHandler {
      * @return the effective configuration; may be null if neither an override or static configuration is provided
      */
     protected JsonValue calcEffectiveConfig(String configPropertyName) {
+        JsonValue overridingConfig = reconContext.getOverridingConfig();
         // Precedence to config supplied in the request body
-        JsonValue effectiveConfig = reconContext.getReconParams().get("_entity").get(configPropertyName);
+        JsonValue effectiveConfig = overridingConfig == null ? new JsonValue(null) : overridingConfig.get(configPropertyName);
+        
         if (effectiveConfig.isNull()) {
-            // Use regular configuration when not overriden in request body
-            JsonValue mappingCfg = reconContext.getObjectMapping().getConfig();
-            effectiveConfig = mappingCfg.get(configPropertyName);
-            logger.debug("Using settings from mapping configuration for {} : {}", configPropertyName, effectiveConfig);
+            // Use regular configuration when not overridden in request body
+            JsonValue cfg = reconContext.getObjectMapping().getConfig().get(configPropertyName);
+            logger.debug("Using settings from mapping configuration for {} : {}", configPropertyName, cfg);
+            return cfg;
         } else {
             logger.debug("Using settings supplied in call for {} : {}", configPropertyName, effectiveConfig);
         }
         return effectiveConfig;
     }
-    
+
     /**
      * Calculate the effective query, taking into account config overrides in the request, as well
      * as defaults
      * @param queryConfigPropertyName The property name in the configuration for this query
-     * @param mappingResource the resource name in the mapping that this query relates to. 
+     * @param mappingResource the resource name in the mapping that this query relates to.
      * Used to default the resource the query will be sent to
      * @return the effecive query
      */
     protected JsonValue calcEffectiveQuery(String queryConfigPropertyName, String mappingResource) {
         JsonValue queryCfg = calcEffectiveConfig(queryConfigPropertyName);
-        
+
         if (queryCfg.isNull()) {
             queryCfg = new JsonValue(new LinkedHashMap());
         }
-        // If not defined in the query config itself, default the query resource to the mapping source 
+        // If not defined in the query config itself, default the query resource to the mapping source
         if (!queryCfg.isDefined("resourceName")) {
             queryCfg.put("resourceName", mappingResource);
-            logger.debug("Default {} resource to query to {}", queryConfigPropertyName, mappingResource); 
+            logger.debug("Default {} resource to query to {}", queryConfigPropertyName, mappingResource);
         }
-        
+
         // If config doesn't explicitly specify the query, default to query all ids
         if (!specifiesQuery(queryCfg)) {
-            queryCfg.put(QueryConstants.QUERY_ID, QueryConstants.QUERY_ALL_IDS);
-            logger.debug("Default {} query to {}", queryConfigPropertyName, QueryConstants.QUERY_ALL_IDS);
+            queryCfg.put(QueryRequest.FIELD_QUERY_ID, ServerConstants.QUERY_ALL_IDS);
+            logger.debug("Default {} query to {}", queryConfigPropertyName, ServerConstants.QUERY_ALL_IDS);
         }
         logger.debug("Effective query for {}: {}", queryConfigPropertyName, queryCfg);
-        
+
         return queryCfg;
     }
-    
+
     /**
      * @param queryCfg The effective query configuration
      * @return true if the effective query configuration explicitly defines the query to execute,
      * false if not
      */
     protected boolean specifiesQuery(JsonValue queryCfg) {
-        // Check if there is a property that defines what query to execute 
-        boolean specifiesQuery = 
-                queryCfg.isDefined(QueryConstants.QUERY_ID) 
-                || queryCfg.isDefined(QueryConstants.QUERY_EXPRESSION)
-                || queryCfg.isDefined(QueryConstants.QUERY_FILTER)
+        // Check if there is a property that defines what query to execute
+        boolean specifiesQuery =
+                queryCfg.isDefined(QueryRequest.FIELD_QUERY_ID)
+                || queryCfg.isDefined(QueryRequest.FIELD_QUERY_EXPRESSION)
+                || queryCfg.isDefined(QueryRequest.FIELD_QUERY_FILTER)
                 || queryCfg.isDefined("query");
         // OpenICF provisioner uses an inconsistent "query" param - to be deprecated
 
@@ -140,10 +152,10 @@ public abstract class ReconTypeBase implements ReconTypeHandler {
                 logger.debug("No explicit query specified");
             }
         }
-        
+
         return specifiesQuery;
     }
-    
+
     /**
      * Execute the specified query
      *
@@ -151,27 +163,55 @@ public abstract class ReconTypeBase implements ReconTypeHandler {
      * @param query the query parameters
      * @param collectionToPopulate the collection to populate with results
      * @param caseSensitive whether the collection should be populated in case
-     * sensitive fashion, or if false it populates as lower case only  
+     * sensitive fashion, or if false it populates as lower case only
      * @return the collection of (unqualified) ids
      * @throws SynchronizationException if retrieving or processing the ids failed
      */
-    protected Collection<String> query(final String objectSet, JsonValue query, ReconciliationContext reconContext, 
-            Collection<String> collectionToPopulate, boolean caseSensitive) throws SynchronizationException {
-        Collection<String> ids = collectionToPopulate;
+    protected Collection<String> query(final String objectSet, JsonValue query, final ReconciliationContext reconContext,
+            Collection<String> collectionToPopulate, final boolean caseSensitive) throws SynchronizationException {
+        final Collection<String> ids = collectionToPopulate;
 
         try {
-            JsonValue objList = new JsonValue(reconContext.getService().getRouter().query(objectSet, query.asMap()))
-                    .get(QueryConstants.QUERY_RESULT).required().expect(List.class);
-            for (JsonValue obj : objList) {
-                String value = obj.get("_id").asString();
-                if (!caseSensitive) {
-                    value = (value == null ? null : reconContext.getObjectMapping().getLinkType().normalizeId(value));
-                }
-                ids.add(value);
+            QueryRequest r = Requests.newQueryRequest(objectSet);
+            r.setQueryId(query.get(QueryRequest.FIELD_QUERY_ID).asString());
+            r.setQueryExpression(query.get(QueryRequest.FIELD_QUERY_EXPRESSION).asString());
+            JsonValue queryFilter = query.get(QueryRequest.FIELD_QUERY_FILTER);
+            if (!queryFilter.isNull()) {
+                r.setQueryFilter(QueryFilter.valueOf(queryFilter.asString()));
             }
+            for (Map.Entry<String, Object> e: query.asMap().entrySet()) {
+                r.setAdditionalParameter(e.getKey(), String.valueOf(e.getValue()));
+            }
+            reconContext.getService().getConnectionFactory().getConnection().query(reconContext.getService().getRouter(), r,
+                    new QueryResultHandler() {
+                        @Override
+                        public void handleError(ResourceException error) {
+                            // ignore
+                        }
+
+                        @Override
+                        public boolean handleResource(Resource resource) {
+                            if (resource.getId() == null) {
+                                // do not add null values to collection
+                                logger.warn("Resource {0} id is null!", resource.toString());
+                            }
+                            else {
+                                ids.add(
+                                    caseSensitive
+                                    ? resource.getId()
+                                    : reconContext.getObjectMapping().getLinkType().normalizeId(resource.getId()));
+                            }
+                            return true;
+                        }
+
+                        @Override
+                        public void handleResult(QueryResult result) {
+                            //ignore
+                        }
+                    });
         } catch (JsonValueException jve) {
             throw new SynchronizationException(jve);
-        } catch (ObjectSetException ose) {
+        } catch (ResourceException ose) {
             throw new SynchronizationException(ose);
         }
 

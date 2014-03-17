@@ -48,7 +48,7 @@ public class DataSourceFactory {
         ds.setTransactionRecoveryEnabled(true);// Important: This should be enabled
         ds.setAcquireRetryAttempts(10);//default is 5
         ds.setReleaseHelperThreads(5);
-        
+
         // Default if not explicitly set
         if (ds.getMaxConnectionsPerPartition() < 1) {
             ds.setMinConnectionsPerPartition(1);
@@ -62,7 +62,7 @@ public class DataSourceFactory {
         ds.setCloseConnectionWatch(true); // Debug setting, not for production
         ds.setStatementsCacheSize(20); // This caching may already be done by DB driver
         */
-        
+
         logger.debug("BoneCPDataSource: {}", ds);
         return ds;
     }

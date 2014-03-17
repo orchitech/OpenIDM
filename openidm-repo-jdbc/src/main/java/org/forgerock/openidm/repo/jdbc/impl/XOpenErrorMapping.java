@@ -30,10 +30,10 @@ import org.forgerock.openidm.repo.jdbc.ErrorType;
 /**
  * Maps SQL state with Open Group (X/Open) SQL Standard codes
  * to error constants known in OpenIDM
- * 
- * Use the error type facility sparingly, as it can take 
+ *
+ * Use the error type facility sparingly, as it can take
  * DB specific error code implementations, porting and maintenance
- * 
+ *
  * @author aegloff
  */
 public class XOpenErrorMapping {

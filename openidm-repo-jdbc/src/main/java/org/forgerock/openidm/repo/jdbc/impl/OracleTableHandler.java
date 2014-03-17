@@ -24,48 +24,31 @@
  */
 package org.forgerock.openidm.repo.jdbc.impl;
 
-import org.codehaus.jackson.map.ObjectMapper;
-import org.forgerock.json.fluent.JsonValue;
-import org.forgerock.json.fluent.JsonPointer;
-import org.forgerock.openidm.objset.InternalServerErrorException;
-import org.forgerock.openidm.objset.NotFoundException;
-import org.forgerock.openidm.objset.ObjectSetException;
-import org.forgerock.openidm.objset.PreconditionFailedException;
-import org.forgerock.openidm.repo.QueryConstants;
-import org.forgerock.openidm.repo.jdbc.ErrorType;
-import org.forgerock.openidm.repo.jdbc.SQLExceptionHandler;
-import org.forgerock.openidm.repo.jdbc.TableHandler;
-import org.forgerock.openidm.repo.jdbc.impl.query.TableQueries;
-import org.forgerock.openidm.repo.jdbc.impl.query.QueryResultMapper;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
 import java.io.IOException;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
-import java.sql.ResultSetMetaData;
 import java.sql.SQLException;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.EnumMap;
-import java.util.List;
 import java.util.Map;
+
+import org.forgerock.json.fluent.JsonValue;
+import org.forgerock.json.resource.InternalServerErrorException;
+import org.forgerock.openidm.repo.jdbc.SQLExceptionHandler;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * @author $author$
  * @version $Revision$ $Date$
  */
 public class OracleTableHandler extends GenericTableHandler {
-	final static Logger logger = LoggerFactory.getLogger(OracleTableHandler.class);
-	
+    final static Logger logger = LoggerFactory.getLogger(OracleTableHandler.class);
+
     public OracleTableHandler(JsonValue tableConfig, String dbSchemaName, JsonValue queriesConfig, int maxBatchSize, SQLExceptionHandler sqlExceptionHandler) {
         super(tableConfig, dbSchemaName, queriesConfig, maxBatchSize, sqlExceptionHandler);
     }
-	
-	@Override
+
+    @Override
     public void create(String fullId, String type, String localId, Map<String, Object> obj, Connection connection)
             throws SQLException, IOException, InternalServerErrorException {
         connection.setAutoCommit(true);
@@ -79,13 +62,13 @@ public class OracleTableHandler extends GenericTableHandler {
             // return the value of the "id-column" instead of the rowid. This is done by passing the following array to the PreparedStatement
             String generatedColumns[] = {"id"};
             createStatement = queries.getPreparedStatement(connection, queryMap.get(QueryDefinition.CREATEQUERYSTR), generatedColumns);
-    
+
             logger.debug("Create with fullid {}", fullId);
             String rev = "0";
             obj.put("_id", localId); // Save the id in the object
             obj.put("_rev", rev); // Save the rev in the object, and return the changed rev from the create.
             String objString = mapper.writeValueAsString(obj);
-    
+
             logger.trace("Populating statement {} with params {}, {}, {}, {}",
                     new Object[]{createStatement, typeId, localId, rev, objString});
             createStatement.setLong(1, typeId);
@@ -94,16 +77,16 @@ public class OracleTableHandler extends GenericTableHandler {
             createStatement.setString(4, objString);
             logger.debug("Executing: {}", createStatement);
             int val = createStatement.executeUpdate();
-    
+
             ResultSet keys = createStatement.getGeneratedKeys();
             boolean validKeyEntry = keys.next();
             if (!validKeyEntry) {
                 throw new InternalServerErrorException("Object creation for " + fullId + " failed to retrieve an assigned ID from the DB.");
             }
-            
+
             // Should now contain the value of the autoincremented column
             long dbId = keys.getLong(1);
-			
+
             logger.debug("Created object for id {} with rev {}", fullId, rev);
             JsonValue jv = new JsonValue(obj);
             writeValueProperties(fullId, dbId, localId, jv, connection);
@@ -118,12 +101,12 @@ public class OracleTableHandler extends GenericTableHandler {
         String typeTable = dbSchemaName == null ? "objecttypes" : dbSchemaName + ".objecttypes";
         String mainTable = dbSchemaName == null ? mainTableName : dbSchemaName + "." + mainTableName;
         String propertyTable = dbSchemaName == null ? propTableName : dbSchemaName + "." + propTableName;
-        
+
         // ORACLE is not capable of using the DELETE statements defined in the StandardHandler, therefore we are changing them to
         // something more ORACLEfriendly (thanks to the one that wrote the DB2 adapter
         result.put(QueryDefinition.DELETEQUERYSTR, "DELETE FROM " + mainTable + " obj WHERE EXISTS (SELECT 1 FROM " + typeTable + " objtype WHERE obj.objecttypes_id = objtype.id AND objtype.objecttype = ?) AND obj.objectid = ? AND obj.rev = ?");
         result.put(QueryDefinition.PROPDELETEQUERYSTR, "DELETE FROM " + propertyTable + " WHERE " + mainTableName + "_id = (SELECT obj.id FROM " + mainTable + " obj, " + typeTable + " objtype WHERE obj.objecttypes_id = objtype.id AND objtype.objecttype = ? AND obj.objectid  = ?)");
-		
+
         return result;
     }
 }

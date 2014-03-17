@@ -52,7 +52,8 @@ define("config/AppConfiguration", [
                {
                    moduleClass: "org/forgerock/commons/ui/common/SiteConfigurator",
                    configuration: {
-                       remoteConfig: true
+                       remoteConfig: true,
+                       delegate: "org/forgerock/openidm/ui/common/delegates/SiteConfigurationDelegate"
                    } 
                },
                {
@@ -103,20 +104,26 @@ define("config/AppConfiguration", [
                                "role": "ui-admin",
                                "urls": {
                                    "dashboard": {
-                                       "url": "#/",
-                                       "name": "config.AppConfiguration.Navigation.links.dashboard"
+                                       "url": "#dashboard/",
+                                       "name": "config.AppConfiguration.Navigation.links.dashboard",
+                                       "icon": "glyph-icon-th-list",
+                                       "inactive": false
                                    },
                                    "users": {
                                        "url": "#users/",
-                                       "name": "config.AppConfiguration.Navigation.links.users"
+                                       "name": "config.AppConfiguration.Navigation.links.users",
+                                       "icon": "glyph-icon-user",
+                                       "inactive": false
                                    }
                                }    
                            },
                            "user" : {
                                "urls": {
                                    "dashboard": {
-                                       "url": "#/",
-                                       "name": "config.AppConfiguration.Navigation.links.dashboard"
+                                       "url": "#dashboard/",
+                                       "name": "config.AppConfiguration.Navigation.links.dashboard",
+                                       "icon": "glyph-icon-th-list",
+                                       "inactive": false
                                    }
                                }    
                            }
@@ -148,6 +155,7 @@ define("config/AppConfiguration", [
                        messages: {
                        },
                        loader: [
+                                {"messages":"config/messages/CommonMessages"},
                                 {"messages":"config/messages/AdminMessages"},
                                 {"messages":"config/messages/UserMessages"}
                        ]

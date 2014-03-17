@@ -1,7 +1,7 @@
 /*
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS HEADER.
  *
- * Copyright (c) 2011-2013 ForgeRock AS. All rights reserved.
+ * Copyright (c) 2011-2013 ForgeRock AS. All Rights Reserved
  *
  * The contents of this file are subject to the terms
  * of the Common Development and Distribution License
@@ -21,37 +21,36 @@
  * your own identifying information:
  * "Portions Copyrighted [year] [name of copyright owner]"
  */
+
 package org.forgerock.openidm.crypto.factory;
 
 import org.forgerock.openidm.crypto.CryptoService;
 import org.forgerock.openidm.crypto.impl.CryptoServiceImpl;
-
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * Cryptography Service Factory
- * The cryptography service can be obtained either though this factory, or the OSGi registry.
- * This avoids bootstrap order issues with decrypting configuration.
- * 
+ * Cryptography Service Factory The cryptography service can be obtained either
+ * though this factory, or the OSGi registry. This avoids bootstrap order issues
+ * with decrypting configuration.
+ *
  * @author aegloff
  * @author ckienle
  */
 public class CryptoServiceFactory {
 
-    private final static Logger LOGGER = LoggerFactory.getLogger(CryptoServiceFactory.class);
-
     /**
-     * A cryptography service instance
+     * A cryptography service newBuilder
      */
     private static CryptoServiceImpl instance;
-    
+
     /**
-     * Get a cryptography service instance
-     * The cryptography service can be obtained either through this factory, 
-     * or preferrably the OSGi service registry. 
-     * This avoids bootstrap order issues with decrypting configuration.
-     * @return a cryptography service instance
+     * Get a cryptography service newBuilder The cryptography service can be
+     * obtained either through this factory, or preferrably the OSGi service
+     * registry. This avoids bootstrap order issues with decrypting
+     * configuration.
+     *
+     * @return a cryptography service newBuilder
      */
     public static synchronized CryptoService getInstance() {
         if (instance == null) {

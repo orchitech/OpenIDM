@@ -1,7 +1,7 @@
 /*
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS HEADER.
  *
- * Copyright © 2012 ForgeRock AS. All rights reserved.
+ * Copyright (c) 2011-2013 ForgeRock AS. All Rights Reserved
  *
  * The contents of this file are subject to the terms
  * of the Common Development and Distribution License
@@ -20,36 +20,61 @@
  * with the fields enclosed by brackets [] replaced by
  * your own identifying information:
  * "Portions Copyrighted [year] [name of copyright owner]"
- * $Id$
  */
+
 package org.forgerock.openidm.shell.impl;
 
+import java.io.IOException;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collection;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.logging.Level;
+
+import org.codehaus.jackson.map.ObjectMapper;
 import org.forgerock.json.fluent.JsonValue;
 import org.forgerock.json.fluent.JsonValueException;
-import org.forgerock.json.resource.JsonResource;
-import org.forgerock.json.resource.JsonResourceException;
-import org.forgerock.json.resource.SimpleJsonResource;
+import org.forgerock.json.resource.ActionRequest;
+import org.forgerock.json.resource.BadRequestException;
+import org.forgerock.json.resource.Connection;
+import org.forgerock.json.resource.CreateRequest;
+import org.forgerock.json.resource.DeleteRequest;
+import org.forgerock.json.resource.FutureResult;
+import org.forgerock.json.resource.InternalServerErrorException;
+import org.forgerock.json.resource.PatchOperation;
+import org.forgerock.json.resource.PatchRequest;
+import org.forgerock.json.resource.QueryRequest;
+import org.forgerock.json.resource.QueryResult;
+import org.forgerock.json.resource.QueryResultHandler;
+import org.forgerock.json.resource.ReadRequest;
+import org.forgerock.json.resource.Request;
+import org.forgerock.json.resource.Resource;
+import org.forgerock.json.resource.ResultHandler;
+import org.forgerock.json.resource.UpdateRequest;
 import org.restlet.Context;
-import org.restlet.data.*;
+import org.restlet.data.ChallengeResponse;
+import org.restlet.data.ChallengeScheme;
+import org.restlet.data.Conditions;
+import org.restlet.data.MediaType;
+import org.restlet.data.Method;
+import org.restlet.data.Preference;
+import org.restlet.data.Reference;
+import org.restlet.data.Tag;
 import org.restlet.ext.jackson.JacksonRepresentation;
 import org.restlet.representation.EmptyRepresentation;
 import org.restlet.representation.Representation;
 import org.restlet.resource.ClientResource;
 import org.restlet.resource.ResourceException;
 
-
-import java.io.IOException;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.List;
-import java.util.Map;
+import sun.reflect.generics.reflectiveObjects.NotImplementedException;
 
 /**
  * @author $author$
  * @version $Revision$ $Date$
  */
-public class HttpRemoteJsonResource implements JsonResource {
-
+public class HttpRemoteJsonResource implements Connection {
 
     /**
      * Requests that the origin server accepts the entity enclosed in the
@@ -70,9 +95,10 @@ public class HttpRemoteJsonResource implements JsonResource {
         Context context = new Context();
         remoteClient = new ClientResource(context, "http://localhost:8080/openidm/");
 
-        /*Client client = new Client(Protocol.HTTP);
-        client.setContext(context);
-        remoteClient.setNext(client);*/
+        /*
+         * Client client = new Client(Protocol.HTTP);
+         * client.setContext(context); remoteClient.setNext(client);
+         */
 
         // Accept: application/json
         List<Preference<MediaType>> acceptedMediaTypes = new ArrayList<Preference<MediaType>>(1);
@@ -82,104 +108,256 @@ public class HttpRemoteJsonResource implements JsonResource {
         ChallengeResponse rc = new ChallengeResponse(ChallengeScheme.HTTP_BASIC, "openidm-admin", "openidm-admin");
         remoteClient.setChallengeResponse(rc);
 
-
         // -------------------------------------
-        //  Add user-defined extension headers
+        // Add user-defined extension headers
         // -------------------------------------
         /*
-        New Restlet 2.1 API
-        Series<org.restlet.engine.header.Header> additionalHeaders =
-                (Series<org.restlet.engine.header.Header>) remoteClient.getRequest().getAttributes().get(HeaderConstants.ATTRIBUTE_HEADERS);
-        if (additionalHeaders == null) {
-            additionalHeaders = new Series<org.restlet.engine.header.Header>(org.restlet.engine.header.Header.class);
-            remoteClient.getRequest().getAttributes().put(HeaderConstants.ATTRIBUTE_HEADERS, additionalHeaders);
-        }*/
+         * New Restlet 2.1 API Series<org.restlet.engine.header.Header>
+         * additionalHeaders = (Series<org.restlet.engine.header.Header>)
+         * remoteClient
+         * .getRequest().getAttributes().get(HeaderConstants.ATTRIBUTE_HEADERS);
+         * if (additionalHeaders == null) { additionalHeaders = new
+         * Series<org.restlet
+         * .engine.header.Header>(org.restlet.engine.header.Header.class);
+         * remoteClient
+         * .getRequest().getAttributes().put(HeaderConstants.ATTRIBUTE_HEADERS,
+         * additionalHeaders); }
+         */
 
-        /*org.restlet.data.Form additionalHeaders = (org.restlet.data.Form) remoteClient.getRequest().getAttributes().get(HeaderConstants.ATTRIBUTE_HEADERS);
-        if (additionalHeaders == null) {
-            additionalHeaders = new org.restlet.data.Form();
-            remoteClient.getRequest().getAttributes().put(HeaderConstants.ATTRIBUTE_HEADERS, additionalHeaders);
-        }
-
-        additionalHeaders.add("X-OpenIDM-Username", "openidm-admin");
-        additionalHeaders.add("X-OpenIDM-Password", "openidm-admin");
-        additionalHeaders.add("X-PrettyPrint", "1");*/
+        /*
+         * org.restlet.data.Form additionalHeaders = (org.restlet.data.Form)
+         * remoteClient
+         * .getRequest().getAttributes().get(HeaderConstants.ATTRIBUTE_HEADERS);
+         * if (additionalHeaders == null) { additionalHeaders = new
+         * org.restlet.data.Form();
+         * remoteClient.getRequest().getAttributes().put
+         * (HeaderConstants.ATTRIBUTE_HEADERS, additionalHeaders); }
+         *
+         * additionalHeaders.add("X-OpenIDM-Username", "openidm-admin");
+         * additionalHeaders.add("X-OpenIDM-Password", "openidm-admin");
+         * additionalHeaders.add("X-PrettyPrint", "1");
+         */
 
     }
 
     @Override
-    public JsonValue handle(JsonValue jsonValues) throws JsonResourceException {
+    public JsonValue action(org.forgerock.json.resource.Context context, ActionRequest request)
+            throws org.forgerock.json.resource.ResourceException {
+        JsonValue params = new JsonValue(request.getAdditionalParameters());
+        JsonValue result = handle(request, request.getResourceName(), params);
+        return result;
+    }
+
+    @Override
+    public FutureResult<JsonValue> actionAsync(org.forgerock.json.resource.Context context,
+            ActionRequest request, ResultHandler<? super JsonValue> handler) {
+        throw new NotImplementedException();
+    }
+
+    @Override
+    public void close() {
+        remoteClient.release();
+    }
+
+    @Override
+    public Resource create(org.forgerock.json.resource.Context context, CreateRequest request)
+            throws org.forgerock.json.resource.ResourceException {
+        JsonValue result = handle(request, request.getResourceName() + "/" + request.getNewResourceId(), null);
+        return new Resource(result.get("_id").asString(), result.get("_rev").asString(), result);
+    }
+
+    @Override
+    public FutureResult<Resource> createAsync(org.forgerock.json.resource.Context context,
+            CreateRequest request, ResultHandler<? super Resource> handler) {
+        throw new NotImplementedException();
+    }
+
+    @Override
+    public Resource delete(org.forgerock.json.resource.Context context, DeleteRequest request)
+            throws org.forgerock.json.resource.ResourceException {
+        handle(request, request.getResourceName(), null);
+        return null;
+    }
+
+    @Override
+    public FutureResult<Resource> deleteAsync(org.forgerock.json.resource.Context context,
+            DeleteRequest request, ResultHandler<? super Resource> handler) {
+        throw new NotImplementedException();
+    }
+
+    @Override
+    public boolean isClosed() {
+        return false;
+    }
+
+    @Override
+    public boolean isValid() {
+        return true;
+    }
+
+    @Override
+    public Resource patch(org.forgerock.json.resource.Context context, PatchRequest request)
+            throws org.forgerock.json.resource.ResourceException {
+        throw new NotImplementedException();
+    }
+
+    @Override
+    public FutureResult<Resource> patchAsync(org.forgerock.json.resource.Context context,
+            PatchRequest request, ResultHandler<? super Resource> handler) {
+        throw new NotImplementedException();
+    }
+
+    @Override
+    public QueryResult query(org.forgerock.json.resource.Context context, QueryRequest request,
+            QueryResultHandler handler) throws org.forgerock.json.resource.ResourceException {
+        return null;
+    }
+
+    @Override
+    public QueryResult query(org.forgerock.json.resource.Context context, QueryRequest request,
+            Collection<? super Resource> results)
+            throws org.forgerock.json.resource.ResourceException {
+        return null;
+    }
+
+    @Override
+    public FutureResult<QueryResult> queryAsync(org.forgerock.json.resource.Context context,
+            QueryRequest request, QueryResultHandler handler) {
+        throw new NotImplementedException();
+    }
+
+    @Override
+    public Resource read(org.forgerock.json.resource.Context context, ReadRequest request)
+            throws org.forgerock.json.resource.ResourceException {
+        JsonValue result = handle(request, request.getResourceName(), null);
+        return new Resource(result.get("_id").asString(), result.get("_rev").asString(), result);
+    }
+
+    @Override
+    public FutureResult<Resource> readAsync(org.forgerock.json.resource.Context context,
+            ReadRequest request, ResultHandler<? super Resource> handler) {
+        throw new NotImplementedException();
+    }
+
+    @Override
+    public Resource update(org.forgerock.json.resource.Context context, UpdateRequest request)
+            throws org.forgerock.json.resource.ResourceException {
+        JsonValue result = handle(request, request.getResourceName(), null);
+        return new Resource(result.get("_id").asString(), result.get("_rev").asString(), result);
+    }
+
+    @Override
+    public FutureResult<Resource> updateAsync(org.forgerock.json.resource.Context context,
+            UpdateRequest request, ResultHandler<? super Resource> handler) {
+        throw new NotImplementedException();
+    }
+    
+    public ClientResource getClientResource(Reference ref) {
+        ClientResource clientResource = new ClientResource(new Context(), "http://localhost:8080/openidm/" + ref.toString());
+        List<Preference<MediaType>> acceptedMediaTypes = new ArrayList<Preference<MediaType>>(1);
+        acceptedMediaTypes.add(new Preference<MediaType>(MediaType.APPLICATION_JSON));
+        clientResource.getClientInfo().setAcceptedMediaTypes(acceptedMediaTypes);
+        clientResource.getLogger().setLevel(Level.WARNING);
+        
+        ChallengeResponse rc = new ChallengeResponse(ChallengeScheme.HTTP_BASIC, "openidm-admin", "openidm-admin");
+        clientResource.setChallengeResponse(rc);
+        return clientResource;
+    }
+    
+    @SuppressWarnings({ "rawtypes", "unchecked" })
+    public JsonValue getResponse(ClientResource clientResource, Representation response) 
+            throws org.forgerock.json.resource.ResourceException {
+        // Check if the request failed
+        if (!clientResource.getStatus().isSuccess()) {
+            throw org.forgerock.json.resource.ResourceException.getException(clientResource
+                    .getStatus().getCode(), clientResource.getStatus().getDescription(),
+                    clientResource.getStatus().getThrowable());
+        }
+
+        JsonValue result = null;
+        if (null != response && response instanceof EmptyRepresentation == false) {
+            try {
+                // Parse the response
+                result = new JsonValue(new JacksonRepresentation(response, Map.class).getObject());
+            } catch (IOException e) {
+                throw new InternalServerErrorException(e);
+            }
+        } else {
+            result = new JsonValue(null);
+        }
+        return result;
+    }
+
+    public JsonValue handle(Request request, String id, JsonValue params)
+            throws org.forgerock.json.resource.ResourceException {
         Representation response = null;
         ClientResource clientResource = null;
         try {
-            String id = jsonValues.get("id").required().asString();
             Reference remoteRef = new Reference(id);
+            
+            // Get the client resource corresponding to this request's resource name
+            clientResource = getClientResource(remoteRef);
 
             // Prepare query params
-            JsonValue params = jsonValues.get("params");
-            if (!params.isNull()) {
+            if (params != null && !params.isNull()) {
                 for (Map.Entry<String, Object> entry : params.expect(Map.class).asMap().entrySet()) {
                     if (entry.getValue() instanceof String) {
-                        remoteRef.addQueryParameter(entry.getKey(), (String) entry.getValue());
+                        clientResource.addQueryParameter(entry.getKey(), (String) entry.getValue());
                     }
                 }
             }
-            clientResource = remoteClient.getChild(remoteRef);
 
-            // Prepare payload
-            Representation request = null;
-            JsonValue value = jsonValues.get("value");
+            // Payload
+            Representation representation = null;
+            JsonValue value = getRequestValue(request);
             if (!value.isNull()) {
-                request = new JacksonRepresentation<Map>(value.expect(Map.class).asMap());
+                representation = new JacksonRepresentation<Map>(value.expect(Map.class).asMap());
             }
 
-            // Prepare ETag
+            // ETag
             Conditions conditions = new Conditions();
-            JsonValue rev = jsonValues.get("rev");
 
-            switch (jsonValues.get("method").required().asEnum(SimpleJsonResource.Method.class)) {
-                case create:
-                    //TODO Use condition when org.forgerock.json.resource.restlet.JsonServerResource#doHandle() is fixed
-                    //conditions.setNoneMatch(Arrays.asList(Tag.ALL));
-                    clientResource.getRequest().setConditions(conditions);
-                    response = clientResource.put(request);
-                    break;
-                case read:
-                    if (!rev.isNull()) {
-                        conditions.setMatch(getTag(rev.asString()));
-                        clientResource.getRequest().setConditions(conditions);
-                    }
-                    response = clientResource.get();
-                    break;
-                case update:
-                    conditions.setMatch(getTag(rev.required().asString()));
-                    clientResource.getRequest().setConditions(conditions);
-                    response = clientResource.put(request);
-                    break;
-                case delete:
-                    conditions.setMatch(getTag(rev.required().asString()));
-                    clientResource.getRequest().setConditions(conditions);
-                    response = clientResource.delete();
-                    break;
-                case patch:
-                    conditions.setMatch(getTag(rev.required().asString()));
-                    clientResource.getRequest().setConditions(conditions);
-                    clientResource.setMethod(PATCH);
-                    clientResource.getRequest().setEntity(request);
-                    response = clientResource.handle();
-                    break;
-                case query:
-                    response = clientResource.get();
-                    break;
-                case action:
-                    response = clientResource.post(request);
-                    break;
-                default:
-                    throw new JsonResourceException(JsonResourceException.BAD_REQUEST);
+            switch (request.getRequestType()) {
+            case CREATE:
+                conditions.setNoneMatch(Arrays.asList(Tag.ALL));
+                clientResource.getRequest().setConditions(conditions);
+                response = clientResource.put(representation);
+                break;
+            case READ:
+                response = clientResource.get();
+                break;
+            case UPDATE:
+                conditions.setMatch(getTag(((UpdateRequest)request).getRevision()));
+                clientResource.getRequest().setConditions(conditions);
+                response = clientResource.put(representation);
+                break;
+            case DELETE:
+                conditions.setMatch(Arrays.asList(Tag.ALL));
+                clientResource.getRequest().setConditions(conditions);
+                response = clientResource.delete();
+                break;
+            case PATCH:
+                conditions.setMatch(getTag(((PatchRequest)request).getRevision()));
+                clientResource.getRequest().setConditions(conditions);
+                clientResource.setMethod(PATCH);
+                clientResource.getRequest().setEntity(representation);
+                response = clientResource.handle();
+                break;
+            case QUERY:
+                response = clientResource.get();
+                break;
+            case ACTION:
+                //clientResource.getRequest().setEntity(representation);
+                response = clientResource.post(representation);
+                break;
+            default:
+                throw new BadRequestException();
             }
 
             if (!clientResource.getStatus().isSuccess()) {
-                throw new JsonResourceException(clientResource.getStatus().getCode(), clientResource.getStatus().getDescription(), clientResource.getStatus().getThrowable());
+                throw org.forgerock.json.resource.ResourceException.getException(clientResource
+                        .getStatus().getCode(), clientResource.getStatus().getDescription(),
+                        clientResource.getStatus().getThrowable());
             }
 
             JsonValue result = null;
@@ -191,7 +369,7 @@ public class HttpRemoteJsonResource implements JsonResource {
             }
             return result;
         } catch (JsonValueException jve) {
-            throw new JsonResourceException(JsonResourceException.BAD_REQUEST, jve);
+            throw new BadRequestException(jve);
         } catch (ResourceException e) {
             StringBuilder sb = new StringBuilder(e.getStatus().getDescription());
             if (null != clientResource) {
@@ -200,14 +378,40 @@ public class HttpRemoteJsonResource implements JsonResource {
                 } catch (IOException e1) {
                 }
             }
-            throw new JsonResourceException(e.getStatus().getCode(), sb.toString(), e.getCause());
+            throw org.forgerock.json.resource.ResourceException.getException(e.getStatus()
+                    .getCode(), sb.toString(), e.getCause());
         } catch (Exception e) {
-            throw new JsonResourceException(JsonResourceException.INTERNAL_ERROR, e.getMessage(), e);
+            throw new InternalServerErrorException(e);
         } finally {
             if (null != response) {
                 response.release();
             }
         }
+    }
+    
+    private JsonValue getRequestValue(Request request) throws Exception {
+        switch (request.getRequestType()) {
+        case CREATE:
+            return ((CreateRequest)request).getContent();
+        case UPDATE:
+            return new JsonValue(((UpdateRequest)request).getContent());
+        case PATCH:
+            ObjectMapper mapper = new ObjectMapper();
+            List<PatchOperation> ops = ((PatchRequest)request).getPatchOperations();
+            JsonValue value = new JsonValue(new ArrayList<Object>());
+            for (PatchOperation op : ops) {
+               value.add(new JsonValue(mapper.readValue(op.toString(), Object.class)));
+            }
+            return value;
+        case ACTION:
+            JsonValue content = ((ActionRequest)request).getContent();
+            if (content != null && !content.isNull()) {
+                return content;
+            } else {
+                return new JsonValue(new HashMap<String, Object>());
+            }
+        }
+        return new JsonValue(null);
     }
 
     private List<Tag> getTag(String tag) {

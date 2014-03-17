@@ -23,7 +23,6 @@
  */
 package org.forgerock.openidm.audit.impl;
 
-import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileReader;
 import java.io.FileWriter;
@@ -38,15 +37,14 @@ import java.util.Map;
 import java.util.TreeSet;
 
 import org.forgerock.json.fluent.JsonValue;
-import org.forgerock.openidm.config.InvalidException;
+import org.forgerock.json.resource.BadRequestException;
+import org.forgerock.json.resource.InternalServerErrorException;
+import org.forgerock.json.resource.NotFoundException;
+import org.forgerock.json.resource.ResourceException;
+import org.forgerock.json.resource.ServerContext;
+import org.forgerock.openidm.config.enhanced.InvalidException;
 import org.forgerock.openidm.core.IdentityServer;
 import org.forgerock.openidm.core.ServerConstants;
-import org.forgerock.openidm.objset.BadRequestException;
-import org.forgerock.openidm.objset.ForbiddenException;
-import org.forgerock.openidm.objset.InternalServerErrorException;
-import org.forgerock.openidm.objset.NotFoundException;
-import org.forgerock.openidm.objset.ObjectSetException;
-import org.forgerock.openidm.objset.Patch;
 import org.forgerock.openidm.smartevent.EventEntry;
 import org.forgerock.openidm.smartevent.Name;
 import org.forgerock.openidm.smartevent.Publisher;
@@ -71,9 +69,9 @@ public class CSVAuditLogger extends AbstractAuditLogger implements AuditLogger {
 
     public final static String CONFIG_LOG_LOCATION = "location";
     public final static String CONFIG_LOG_RECORD_DELIM = "recordDelimiter";
-    
+
     private static Object lock = new Object();
-    
+
     /**
      * Event names for monitoring audit behavior
      */
@@ -102,7 +100,7 @@ public class CSVAuditLogger extends AbstractAuditLogger implements AuditLogger {
                     + "' is invalid " + ex.getMessage(), ex);
         }
     }
-    
+
     public void cleanup() {
         for (Map.Entry<String, FileWriter> entry : fileWriters.entrySet()) {
             try {
@@ -120,15 +118,11 @@ public class CSVAuditLogger extends AbstractAuditLogger implements AuditLogger {
      * {@inheritDoc}
      */
     @Override
-    public Map<String, Object> read(String fullId) throws ObjectSetException {
-        Map<String, Object> result = new HashMap<String, Object>();
-        String[] split = AuditServiceImpl.splitFirstLevel(fullId);
-        String type = split[0];
-        String id = split[1];
-        
+    public Map<String, Object> read(ServerContext context, String type, String id) throws ResourceException {
         try {
+            Map<String, Object> result = new HashMap<String, Object>();
             List<Map<String, Object>> entriesList = new ArrayList<Map<String, Object>>();
-            List<Map<String, Object>> entryList = getEntryList(type); 
+            List<Map<String, Object>> entryList = getEntryList(type);
             if (entryList == null) {
                 throw new NotFoundException(type + " audit log not found");
             }
@@ -143,16 +137,16 @@ public class CSVAuditLogger extends AbstractAuditLogger implements AuditLogger {
                 throw new NotFoundException("Audit log entry with id " + id + " not found");
             }
             result.put("entries", entriesList);
+            return result;
         } catch (Exception e) {
             throw new BadRequestException(e);
         }
-        return result;
     }
-    
+
     /**
      * Parser the csv file corresponding the the specified type (recon, activity, etc) and returns a list
      * of all entries in it.
-     * 
+     *
      * @param type the audit log type
      * @return  A list of audit log entries
      * @throws Exception
@@ -160,7 +154,7 @@ public class CSVAuditLogger extends AbstractAuditLogger implements AuditLogger {
     private List<Map<String, Object>> getEntryList(String type) throws Exception {
         List<Map<String, Object>> entryList = new ArrayList<Map<String, Object>>();
         CellProcessor [] processors = null;
-        if (type.equals(AuditServiceImpl.TYPE_RECON)) {
+        if (AuditServiceImpl.TYPE_RECON.equals(type)) {
             processors = new CellProcessor[] {
                     new NotNull(), // _id
                     new Optional(), // action
@@ -180,7 +174,7 @@ public class CSVAuditLogger extends AbstractAuditLogger implements AuditLogger {
                     new Optional(), // targetObjectId
                     new NotNull() // timestamp
             };
-        } else if (type.equals(AuditServiceImpl.TYPE_ACTIVITY)) {
+        } else if (AuditServiceImpl.TYPE_ACTIVITY.equals(type)) {
             processors = new CellProcessor[] {
                     new NotNull(), // _id
                     new Optional(), // action
@@ -198,10 +192,21 @@ public class CSVAuditLogger extends AbstractAuditLogger implements AuditLogger {
                     new Optional(), // status
                     new NotNull() // timestamp
             };
+        } else if (AuditServiceImpl.TYPE_ACCESS.equals(type)) {
+            processors = new CellProcessor[] {
+                    new NotNull(), // _id
+                    new Optional(), // action
+                    new Optional(), // ip
+                    new Optional(), // principal
+                    new Optional(new ParseJsonValue()), // roles
+                    new Optional(), // status
+                    new NotNull(), // timestamp
+                    new Optional() // userid
+            };
         } else {
             throw new InternalServerErrorException("Error parsing entries: unknown type " + type);
         }
-        
+
         File auditFile = getAuditLogFile(type);
         if (auditFile.exists()) {
             ICsvMapReader reader = null;
@@ -230,32 +235,30 @@ public class CSVAuditLogger extends AbstractAuditLogger implements AuditLogger {
      * {@inheritDoc}
      */
     @Override
-    public Map<String, Object> query(String fullId, Map<String, Object> params) throws ObjectSetException {
-        String queryId = (String)params.get("_queryId");
+    public Map<String, Object> query(ServerContext context, String type, Map<String, String> params) throws ResourceException {
+        String queryId = params.get("_queryId");
         boolean formatted = true;
-        String[] split = AuditServiceImpl.splitFirstLevel(fullId);
-        String type = split[0];
         try {
             if (params.get("formatted") != null && !AuditServiceImpl.getBoolValue(params.get("formatted"))) {
                 formatted = false;
             }
-            
-            List<Map<String, Object>> reconEntryList = getEntryList(type); 
+
+            List<Map<String, Object>> reconEntryList = getEntryList(type);
             if (reconEntryList == null) {
                 throw new NotFoundException(type + " audit log not found");
             }
 
-            String reconId = (String)params.get("reconId");
+            String reconId = params.get("reconId");
             if (AuditServiceImpl.QUERY_BY_RECON_ID.equals(queryId) && type.equals(AuditServiceImpl.TYPE_RECON)) {
-                return AuditServiceImpl.getReconResults(reconEntryList, reconId, formatted);
+                return AuditServiceImpl.getReconResults(reconEntryList, formatted);
             } else if (AuditServiceImpl.QUERY_BY_MAPPING.equals(queryId) && type.equals(AuditServiceImpl.TYPE_RECON)) {
-                return getReconQueryResults(reconEntryList, reconId, "mapping", (String)params.get("mappingName"), formatted);
+                return getReconQueryResults(reconEntryList, reconId, "mapping", params.get("mappingName"), formatted);
             } else if (AuditServiceImpl.QUERY_BY_RECON_ID_AND_SITUATION.equals(queryId) && type.equals(AuditServiceImpl.TYPE_RECON)) {
-                return getReconQueryResults(reconEntryList, reconId, "situation", (String)params.get("situation"), formatted);
+                return getReconQueryResults(reconEntryList, reconId, "situation", params.get("situation"), formatted);
             } else if (AuditServiceImpl.QUERY_BY_RECON_ID_AND_TYPE.equals(queryId) && type.equals(AuditServiceImpl.TYPE_RECON)) {
-                return getReconQueryResults(reconEntryList, reconId, "entryType", (String)params.get("entryType"), formatted);
+                return getReconQueryResults(reconEntryList, reconId, "entryType", params.get("entryType"), formatted);
             } else if (AuditServiceImpl.QUERY_BY_ACTIVITY_PARENT_ACTION.equals(queryId) && type.equals(AuditServiceImpl.TYPE_ACTIVITY)) {
-                String actionId = (String)params.get("parentActionId");
+                String actionId = params.get("parentActionId");
                 List<Map<String, Object>> rawEntryList = new ArrayList<Map<String, Object>>();
                 for (Map<String, Object> entry : reconEntryList) {
                     if (entry.get("parentActionId").equals(actionId)) {
@@ -271,42 +274,37 @@ public class CSVAuditLogger extends AbstractAuditLogger implements AuditLogger {
             throw new BadRequestException(e);
         }
     }
-    
+
     private Map<String, Object> getReconQueryResults(List<Map<String, Object>> list, String reconId, String param, String paramValue, boolean formatted) {
         List<Map<String, Object>> rawEntryList = new ArrayList<Map<String, Object>>();
         for (Map<String, Object> entry : list) {
             if ((reconId == null || (entry.get("reconId").equals(reconId))) && (param == null || paramValue.equals(entry.get(param)))) {
                 rawEntryList.add(entry);
             }
-        } 
-        return AuditServiceImpl.getReconResults(rawEntryList, reconId, formatted);
+        }
+        return AuditServiceImpl.getReconResults(rawEntryList, formatted);
     }
-    
+
     /**
      * {@inheritDoc}
      */
     @Override
-    public void create(String fullId, Map<String, Object> obj) throws ObjectSetException {
+    public void create(ServerContext context, String type, Map<String, Object> obj) throws ResourceException {
         EventEntry measure = Publisher.start(EVENT_AUDIT_CREATE, obj, null);
         // Synchronize writes so that simultaneous writes don't corrupt the file
         synchronized (lock) {
-            String[] split = AuditServiceImpl.splitFirstLevel(fullId);
-            String type = split[0];
             try {
                 AuditServiceImpl.preformatLogEntry(type, obj);
-                createImpl(fullId, obj);
+                createImpl(type, obj);
             } finally {
                 measure.end();
             }
         }
     }
-    
-    
-    private void createImpl(String fullId, Map<String, Object> obj) throws ObjectSetException {
-        // TODO: replace ID handling utility
-        String[] split = AuditServiceImpl.splitFirstLevel(fullId);
-        String type = split[0];
-        
+
+
+    private void createImpl(String type, Map<String, Object> obj) throws ResourceException {
+
         // Re-try once in case the writer stream became closed for some reason
         boolean retry = false;
         int retryCount = 0;
@@ -319,7 +317,7 @@ public class CSVAuditLogger extends AbstractAuditLogger implements AuditLogger {
                 Collection<String> fieldOrder =
                         new TreeSet<String>(Collator.getInstance());
                 fieldOrder.addAll(obj.keySet());
-    
+
                 File auditFile = getAuditLogFile(type);
                 // Create header if creating a new file
                 if (!auditFile.exists()) {
@@ -353,14 +351,14 @@ public class CSVAuditLogger extends AbstractAuditLogger implements AuditLogger {
             ++retryCount;
         } while (retry);
     }
-    
+
     private File getAuditLogFile(String type) {
         return new File(auditLogDir, type + ".csv");
     }
-    
-    private void writeEntry(FileWriter fileWriter, String type, File auditFile, Map<String, Object> obj, Collection<String> fieldOrder) 
+
+    private void writeEntry(FileWriter fileWriter, String type, File auditFile, Map<String, Object> obj, Collection<String> fieldOrder)
             throws IOException{
-        
+
         String key = null;
         Iterator<String> iter = fieldOrder.iterator();
         while (iter.hasNext()) {
@@ -412,11 +410,11 @@ public class CSVAuditLogger extends AbstractAuditLogger implements AuditLogger {
             return existingWriter;
         }
     }
-    
-    // This should only be called if it is known that 
+
+    // This should only be called if it is known that
     // the writer is invalid for use or no thread has obtained it / is using it
     // In other words, it does not synchronize on the use of the writer
-    // If the writerToReset doesn't exist in the fileWriters (anymore) then 
+    // If the writerToReset doesn't exist in the fileWriters (anymore) then
     // another thread already reset it, and no action is taken
     private void resetWriter(String type, FileWriter writerToReset) {
         FileWriter existingWriter = null;
@@ -437,39 +435,6 @@ public class CSVAuditLogger extends AbstractAuditLogger implements AuditLogger {
     }
 
     /**
-     * Audit service does not support changing audit entries.
-     */
-    @Override
-    public void update(String fullId, String rev, Map<String, Object> obj) throws ObjectSetException {
-        throw new ForbiddenException("Not allowed on audit service");
-    }
-
-    /**
-     * Audit service currently does not support deleting audit entries.
-     */
-    @Override
-    public void delete(String fullId, String rev) throws ObjectSetException {
-        throw new ForbiddenException("Not allowed on audit service");
-    }
-
-    /**
-     * Audit service does not support changing audit entries.
-     */
-    @Override
-    public void patch(String id, String rev, Patch patch) throws ObjectSetException {
-        throw new ForbiddenException("Not allowed on audit service");
-    }
-
-    /**
-     * Audit service does not support actions on audit entries.
-     */
-    @Override
-    public Map<String, Object> action(String fullId, Map<String, Object> params) throws ObjectSetException {
-        throw new ForbiddenException("Not allowed on audit service");
-    }
-    
-    
-    /**
      * CellProcessor for parsing JsonValue objects from CSV file.
      */
     public class ParseJsonValue implements CellProcessor {
@@ -487,9 +452,9 @@ public class CSVAuditLogger extends AbstractAuditLogger implements AuditLogger {
             }
             if (jv == null) {
                 return value;
-            } 
+            }
             return jv.asMap();
         }
-        
+
     }
 }

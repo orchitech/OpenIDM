@@ -1,7 +1,7 @@
 /*
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS HEADER.
  *
- * Copyright © 2011 ForgeRock AS. All rights reserved.
+ * Copyright © 2011-2014 ForgeRock AS. All rights reserved.
  *
  * The contents of this file are subject to the terms
  * of the Common Development and Distribution License
@@ -23,38 +23,38 @@
  */
 package org.forgerock.openidm.repo.jdbc.impl;
 
-import org.codehaus.jackson.map.ObjectMapper;
-import org.codehaus.jackson.type.TypeReference;
-import org.forgerock.json.fluent.JsonValue;
-import org.forgerock.json.fluent.JsonPointer;
-import org.forgerock.openidm.objset.InternalServerErrorException;
-import org.forgerock.openidm.objset.NotFoundException;
-import org.forgerock.openidm.objset.ObjectSetException;
-import org.forgerock.openidm.objset.PreconditionFailedException;
-import org.forgerock.openidm.repo.QueryConstants;
-import org.forgerock.openidm.repo.jdbc.ErrorType;
-import org.forgerock.openidm.repo.jdbc.SQLExceptionHandler;
-import org.forgerock.openidm.repo.jdbc.TableHandler;
-import org.forgerock.openidm.repo.jdbc.impl.query.TableQueries;
-import org.forgerock.openidm.repo.jdbc.impl.query.QueryResultMapper;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
 import java.io.IOException;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.ResultSetMetaData;
-import java.sql.Statement;
 import java.sql.SQLException;
+import java.sql.Statement;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
-import java.util.HashMap;
 import java.util.EnumMap;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+
+import org.codehaus.jackson.map.ObjectMapper;
+import org.codehaus.jackson.type.TypeReference;
+import org.forgerock.json.fluent.JsonPointer;
+import org.forgerock.json.fluent.JsonValue;
+import org.forgerock.json.resource.InternalServerErrorException;
+import org.forgerock.json.resource.NotFoundException;
+import org.forgerock.json.resource.PreconditionFailedException;
+import org.forgerock.json.resource.Resource;
+import org.forgerock.json.resource.ResourceException;
+import org.forgerock.openidm.repo.jdbc.ErrorType;
+import org.forgerock.openidm.repo.jdbc.SQLExceptionHandler;
+import org.forgerock.openidm.repo.jdbc.TableHandler;
+import org.forgerock.openidm.repo.jdbc.impl.query.QueryResultMapper;
+import org.forgerock.openidm.repo.jdbc.impl.query.TableQueries;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Handling of tables in a generic (not object specific) layout
@@ -63,11 +63,11 @@ import java.util.Map;
  */
 public class GenericTableHandler implements TableHandler {
     final static Logger logger = LoggerFactory.getLogger(GenericTableHandler.class);
-    
+
     SQLExceptionHandler sqlExceptionHandler;
 
     GenericTableConfig cfg;
-    
+
     final String mainTableName;
     String propTableName;
     final String dbSchemaName;
@@ -76,11 +76,11 @@ public class GenericTableHandler implements TableHandler {
     final ObjectMapper mapper = new ObjectMapper();
     // Type information for the Jackson parser
     final TypeReference<LinkedHashMap<String,Object>> typeRef = new TypeReference<LinkedHashMap<String,Object>>() {};
-    
+
     final TableQueries queries;
 
     Map<QueryDefinition, String> queryMap;
-    
+
     final boolean enableBatching; // Whether to use JDBC statement batching.
     int maxBatchSize;       // The maximum number of statements to batch together. If max batch size is 1, do not use batching.
 
@@ -99,7 +99,7 @@ public class GenericTableHandler implements TableHandler {
 
     public GenericTableHandler(JsonValue tableConfig, String dbSchemaName, JsonValue queriesConfig, int maxBatchSize, SQLExceptionHandler sqlExceptionHandler) {
         cfg = GenericTableConfig.parse(tableConfig);
-        
+
         this.mainTableName = cfg.mainTableName;
         this.propTableName = cfg.propertiesTableName;
         this.dbSchemaName = dbSchemaName;
@@ -108,7 +108,7 @@ public class GenericTableHandler implements TableHandler {
         } else {
             this.maxBatchSize = maxBatchSize;
         }
-        
+
         if (sqlExceptionHandler == null) {
             this.sqlExceptionHandler = new DefaultSQLExceptionHandler();
         } else {
@@ -118,10 +118,10 @@ public class GenericTableHandler implements TableHandler {
         queries = new TableQueries(new GenericQueryResultMapper());
         queryMap = Collections.unmodifiableMap(initializeQueryMap());
         queries.setConfiguredQueries(mainTableName, propTableName, dbSchemaName, queriesConfig, queryMap);
-        
+
         // TODO: Consider taking into account DB meta-data rather than just configuration
         //DatabaseMetaData metadata = connection.getMetaData();
-        //boolean isBatchingSupported = metadata.supportsBatchUpdates();  
+        //boolean isBatchingSupported = metadata.supportsBatchUpdates();
         //if (!isBatchingSupported) {
         //    maxBatchSize = 1;
         //}
@@ -169,28 +169,31 @@ public class GenericTableHandler implements TableHandler {
     * @see org.forgerock.openidm.repo.jdbc.impl.TableHandler#read(java.lang.String, java.lang.String, java.lang.String, java.sql.Connection)
     */
     @Override
-    public Map<String, Object> read(String fullId, String type, String localId, Connection connection)
-            throws NotFoundException, SQLException, IOException {
+    public Resource read(String fullId, String type, String localId, Connection connection)
+            throws ResourceException, SQLException, IOException {
 
-        Map<String, Object> result = null;
-        PreparedStatement readStatement = null; 
+        Resource result = null;
+        Map<String, Object> resultMap = null;
+        PreparedStatement readStatement = null;
         ResultSet rs = null;
         try {
             readStatement = getPreparedStatement(connection, QueryDefinition.READQUERYSTR);
             logger.trace("Populating prepared statement {} for {}", readStatement, fullId);
             readStatement.setString(1, type);
             readStatement.setString(2, localId);
-    
+
             logger.debug("Executing: {}", readStatement);
             rs = readStatement.executeQuery();
             if (rs.next()) {
                 String rev = rs.getString("rev");
                 String objString = rs.getString("fullobject");
-                result = mapper.readValue(objString, typeRef);
-                result.put("_rev", rev);
-                logger.debug(" full id: {}, rev: {}, obj {}", new Object[]{fullId, rev, result});
+                resultMap = mapper.readValue(objString, typeRef);
+                resultMap.put("_rev", rev);
+                logger.debug(" full id: {}, rev: {}, obj {}", new Object[]{fullId, rev, resultMap});
+                result = new Resource(localId, rev, new JsonValue(resultMap));
             } else {
-                throw new NotFoundException("Object " + fullId + " not found in " + type);
+                throw ResourceException.getException(ResourceException.NOT_FOUND,
+                        "Object " + fullId + " not found in " + type);
             }
         } finally {
             CleanupHelper.loggedClose(rs);
@@ -212,13 +215,13 @@ public class GenericTableHandler implements TableHandler {
         PreparedStatement createStatement = null;
         try {
             createStatement = queries.getPreparedStatement(connection, queryMap.get(QueryDefinition.CREATEQUERYSTR), true);
-    
+
             logger.debug("Create with fullid {}", fullId);
             String rev = "0";
             obj.put("_id", localId); // Save the id in the object
             obj.put("_rev", rev); // Save the rev in the object, and return the changed rev from the create.
             String objString = mapper.writeValueAsString(obj);
-    
+
             logger.trace("Populating statement {} with params {}, {}, {}, {}",
                     new Object[]{createStatement, typeId, localId, rev, objString});
             createStatement.setLong(1, typeId);
@@ -227,14 +230,14 @@ public class GenericTableHandler implements TableHandler {
             createStatement.setString(4, objString);
             logger.debug("Executing: {}", createStatement);
             int val = createStatement.executeUpdate();
-    
+
             ResultSet keys = createStatement.getGeneratedKeys();
             boolean validKeyEntry = keys.next();
             if (!validKeyEntry) {
                 throw new InternalServerErrorException("Object creation for " + fullId + " failed to retrieve an assigned ID from the DB.");
             }
             long dbId = keys.getLong(1);
-    
+
             logger.debug("Created object for id {} with rev {}", fullId, rev);
             JsonValue jv = new JsonValue(obj);
             writeValueProperties(fullId, dbId, localId, jv, connection);
@@ -245,7 +248,7 @@ public class GenericTableHandler implements TableHandler {
 
     /**
      * Writes all properties of a given resource to the properties table and links them to the main table record.
-     * 
+     *
      * @param fullId the full URI of the resource the belongs to
      * @param dbId the generated identifier to link the properties table with the main table (foreign key)
      * @param localId the local identifier of the resource these properties belong to
@@ -254,13 +257,13 @@ public class GenericTableHandler implements TableHandler {
      * @throws SQLException if the insert failed
      */
     void writeValueProperties(String fullId, long dbId, String localId, JsonValue value, Connection connection) throws SQLException {
-        if (cfg.searchableDefault) {
+        if (cfg.hasPossibleSearchableProperties()) {
             Integer batchingCount = 0;
             PreparedStatement propCreateStatement = getPreparedStatement(connection, QueryDefinition.PROPCREATEQUERYSTR);
             try {
                 batchingCount = writeValueProperties(fullId, dbId, localId, value, connection, propCreateStatement, batchingCount);
                 if (enableBatching && batchingCount > 0) {
-                    int[] numUpdates = propCreateStatement.executeBatch(); 
+                    int[] numUpdates = propCreateStatement.executeBatch();
                     logger.debug("Batch update of objectproperties updated: {}", numUpdates);
                     if (logger.isDebugEnabled()) {
                         logger.debug("Writing batch of objectproperties, updated: {}", Arrays.asList(numUpdates));
@@ -273,13 +276,13 @@ public class GenericTableHandler implements TableHandler {
         }
     }
     /**
-     * Internal recursive function to add/write properties. 
-     * If batching is enabled, prepared statements are added to the batch and only executed if they hit the max limit. 
-     * After completion returns the number of properties that have only been added to the batch but not yet executed. 
+     * Internal recursive function to add/write properties.
+     * If batching is enabled, prepared statements are added to the batch and only executed if they hit the max limit.
+     * After completion returns the number of properties that have only been added to the batch but not yet executed.
      * The caller is responsible for executing the batch on remaining items when it deems the batch complete.
-     * 
-     * If batching is not enabled, prepared statements are immediately executed. 
-     * 
+     *
+     * If batching is not enabled, prepared statements are immediately executed.
+     *
      * @param fullId the full URI of the resource the belongs to
      * @param dbId the generated identifier to link the properties table with the main table (foreign key)
      * @param localId the local identifier of the resource these properties belong to
@@ -290,9 +293,9 @@ public class GenericTableHandler implements TableHandler {
      * @return status of the current batchingCount, i.e. how many statements are not yet executed in the PreparedStatement
      * @throws SQLException if the insert failed
      */
-    private int writeValueProperties(String fullId, long dbId, String localId, JsonValue value, Connection connection, 
+    private int writeValueProperties(String fullId, long dbId, String localId, JsonValue value, Connection connection,
             PreparedStatement propCreateStatement, int batchingCount) throws SQLException {
-        
+
         for (JsonValue entry : value) {
             JsonPointer propPointer = entry.getPointer();
             if (cfg.isSearchable(propPointer)) {
@@ -348,14 +351,14 @@ public class GenericTableHandler implements TableHandler {
     public boolean isErrorType(SQLException ex, ErrorType errorType) {
         return sqlExceptionHandler.isErrorType(ex, errorType);
     }
-    
+
     /**
      * InheritDoc
      */
     public boolean isRetryable(SQLException ex, Connection connection) {
         return sqlExceptionHandler.isRetryable(ex, connection);
     }
-    
+
     // Ensure type is in objecttypes table and get its assigned id
     // Callers should note that this may commit a transaction and start a new one if a new type gets added
     long getTypeId(String type, Connection connection) throws SQLException, InternalServerErrorException {
@@ -365,7 +368,7 @@ public class GenericTableHandler implements TableHandler {
             connection.setAutoCommit(true); // Commit the new type right away, and have no transaction isolation for read
             try {
                 createTypeId(type, connection);
-                
+
             } catch (SQLException ex) {
                 // Rather than relying on DB specific ignore if exists functionality handle it here
                 // Could extend this in the future to more explicitly check for duplicate key error codes, but these again can be DB specific
@@ -394,10 +397,10 @@ public class GenericTableHandler implements TableHandler {
         PreparedStatement readTypeStatement = null;
         try {
             readTypeStatement = getPreparedStatement(connection, QueryDefinition.READTYPEQUERYSTR);
-    
+
             logger.trace("Populating prepared statement {} for {}", readTypeStatement, type);
             readTypeStatement.setString(1, type);
-    
+
             logger.debug("Executing: {}", readTypeStatement);
             rs = readTypeStatement.executeQuery();
             if (rs.next()) {
@@ -432,14 +435,14 @@ public class GenericTableHandler implements TableHandler {
 
     /**
      * Reads an object with for update locking applied
-     * 
+     *
      * Note: statement associated with the returned resultset
      * is not closed upon return.
      * Aside from taking care to close the resultset it also is
-     * the responsibility of the caller to close the associated 
+     * the responsibility of the caller to close the associated
      * statement. Although the specification specifies that drivers/pools
      * should close the statement automatically, not all do this reliably.
-     * 
+     *
      * @param fullId qualified id of component type and id
      * @param type the component type
      * @param localId the id of the object within the component type
@@ -451,14 +454,14 @@ public class GenericTableHandler implements TableHandler {
     public ResultSet readForUpdate(String fullId, String type, String localId, Connection connection)
             throws NotFoundException, SQLException {
 
-        PreparedStatement readForUpdateStatement = null; 
+        PreparedStatement readForUpdateStatement = null;
         ResultSet rs = null;
         try {
             readForUpdateStatement = getPreparedStatement(connection, QueryDefinition.READFORUPDATEQUERYSTR);
             logger.trace("Populating prepared statement {} for {}", readForUpdateStatement, fullId);
             readForUpdateStatement.setString(1, type);
             readForUpdateStatement.setString(2, localId);
-    
+
             logger.debug("Executing: {}", readForUpdateStatement);
             rs = readForUpdateStatement.executeQuery();
             if (rs.next()) {
@@ -498,13 +501,13 @@ public class GenericTableHandler implements TableHandler {
             long dbId = rs.getLong("id");
             long objectTypeDbId = rs.getLong("objecttypes_id");
             logger.debug("Update existing object {} rev: {} db id: {}, object type db id: {}", new Object[]{fullId, existingRev, dbId, objectTypeDbId});
-    
+
             if (!existingRev.equals(rev)) {
                 throw new PreconditionFailedException("Update rejected as current Object revision " + existingRev + " is different than expected by caller (" + rev + "), the object has changed since retrieval.");
             }
             updateStatement = getPreparedStatement(connection, QueryDefinition.UPDATEQUERYSTR);
             deletePropStatement = getPreparedStatement(connection, QueryDefinition.PROPDELETEQUERYSTR);
-    
+
             // Support changing object identifier
             String newLocalId = (String) obj.get("_id");
             if (newLocalId != null && !localId.equals(newLocalId)) {
@@ -514,7 +517,7 @@ public class GenericTableHandler implements TableHandler {
                 obj.put("_id", newLocalId); // Ensure the ID is saved in the object
             }
             String objString = mapper.writeValueAsString(obj);
-    
+
             logger.trace("Populating prepared statement {} for {} {} {} {} {}", new Object[]{updateStatement, fullId, newLocalId, newRev, objString, dbId});
             updateStatement.setString(1, newLocalId);
             updateStatement.setString(2, newRev);
@@ -526,7 +529,7 @@ public class GenericTableHandler implements TableHandler {
             if (updateCount != 1) {
                 throw new InternalServerErrorException("Update execution did not result in updating 1 row as expected. Updated rows: " + updateCount);
             }
-    
+
             JsonValue jv = new JsonValue(obj);
             // TODO: only update what changed?
             logger.trace("Populating prepared statement {} for {} {} {}", new Object[]{deletePropStatement, fullId, type, localId});
@@ -549,7 +552,7 @@ public class GenericTableHandler implements TableHandler {
     }
 
     /**
-     * @see org.forgerock.openidm.repo.jdbc.impl.GenericTableHandler#delete(java.lang.String, java.lang.String, java.lang.String, java.lang.String, java.sql.Connection)
+     * @see org.forgerock.openidm.repo.jdbc.internal.GenericTableHandler#delete(java.lang.String, java.lang.String, java.lang.String, java.lang.String, java.sql.Connection)
      */
     @Override
     public void delete(String fullId, String type, String localId, String rev, Connection connection)
@@ -570,17 +573,17 @@ public class GenericTableHandler implements TableHandler {
                 throw new PreconditionFailedException("Delete rejected as current Object revision " + existingRev + " is different than "
                         + "expected by caller " + rev + ", the object has changed since retrieval.");
             }
-    
+
             // Proceed with the valid delete
             deleteStatement = getPreparedStatement(connection, QueryDefinition.DELETEQUERYSTR);
             logger.trace("Populating prepared statement {} for {} {} {} {}", new Object[]{deleteStatement, fullId, type, localId, rev});
-    
+
             // Rely on ON DELETE CASCADE for connected object properties to be deleted
             deleteStatement.setString(1, type);
             deleteStatement.setString(2, localId);
             deleteStatement.setString(3, rev);
             logger.debug("Delete statement: {}", deleteStatement);
-    
+
             int deletedRows = deleteStatement.executeUpdate();
             logger.trace("Deleted {} rows for id : {} {}", deletedRows, localId);
             if (deletedRows < 1) {
@@ -604,7 +607,7 @@ public class GenericTableHandler implements TableHandler {
      */
     @Override
     public List<Map<String, Object>> query(String type, Map<String, Object> params, Connection connection)
-            throws ObjectSetException {
+            throws ResourceException {
         return queries.query(type, params, connection);
     }
 
@@ -620,13 +623,13 @@ public class GenericTableHandler implements TableHandler {
 
 class GenericQueryResultMapper implements QueryResultMapper {
     final static Logger logger = LoggerFactory.getLogger(GenericQueryResultMapper.class);
-    
+
     // Jackson parser
     ObjectMapper mapper = new ObjectMapper();
     // Type information for the Jackson parser
     TypeReference<LinkedHashMap<String,Object>> typeRef = new TypeReference<LinkedHashMap<String,Object>>() {};
-    
-    public List<Map<String, Object>> mapQueryToObject(ResultSet rs, String queryId, String type, Map<String, Object> params,  TableQueries tableQueries) 
+
+    public List<Map<String, Object>> mapQueryToObject(ResultSet rs, String queryId, String type, Map<String, Object> params,  TableQueries tableQueries)
             throws SQLException, IOException {
         List<Map<String, Object>> result = new ArrayList<Map<String, Object>>();
         ResultSetMetaData rsMetaData = rs.getMetaData();
@@ -646,9 +649,9 @@ class GenericQueryResultMapper implements QueryResultMapper {
                 String objString = rs.getString("fullobject");
                 Map<String, Object> obj = mapper.readValue(objString, typeRef);
 
-                // TODO: remove data logging            
-                logger.trace("Query result for queryId: {} type: {} converted obj: {}", new Object[] {queryId, type, obj});  
-                
+                // TODO: remove data logging
+                logger.trace("Query result for queryId: {} type: {} converted obj: {}", new Object[] {queryId, type, obj});
+
                 result.add(obj);
             } else {
                 Map<String, Object> obj = new HashMap<String, Object>();
@@ -678,9 +681,16 @@ class GenericTableConfig {
     public String propertiesTableName;
     public boolean searchableDefault;
     public GenericPropertiesConfig properties;
-    
+
     public boolean isSearchable(JsonPointer propPointer) {
-        Boolean explicit = properties.explicitlySearchable.get(propPointer);
+
+        // More specific configuration takes precedence
+        Boolean explicit = null;
+        while (!propPointer.isEmpty() && explicit == null) {
+            explicit = properties.explicitlySearchable.get(propPointer);
+            propPointer = propPointer.parent();
+        }
+        
         if (explicit != null) {
             return explicit.booleanValue();
         } else {
@@ -688,6 +698,15 @@ class GenericTableConfig {
         }
     }
     
+    /**  
+     * @return Approximation on whether this may have searchable properties
+     * It is only an approximation as we do not have an exhaustive list of possible properties
+     * to consider against a default setting of searchable.
+     */
+    public boolean hasPossibleSearchableProperties() {
+        return ((searchableDefault) ? true : properties.explicitSearchableProperties);
+    }
+
     public static GenericTableConfig parse(JsonValue tableConfig) {
         GenericTableConfig cfg = new GenericTableConfig();
         tableConfig.required();
@@ -695,7 +714,7 @@ class GenericTableConfig {
         cfg.propertiesTableName = tableConfig.get("propertiesTable").required().asString();
         cfg.searchableDefault = tableConfig.get("searchableDefault").defaultTo(Boolean.TRUE).asBoolean().booleanValue();
         cfg.properties = GenericPropertiesConfig.parse(tableConfig.get("properties"));
-        
+
         return cfg;
     }
 }
@@ -706,15 +725,23 @@ class GenericPropertiesConfig {
     public String propertiesTableName;
     public boolean searchableDefault;
     public GenericPropertiesConfig properties;
-    
+    // Whether there are any properties explicitly set to searchable true
+    public boolean explicitSearchableProperties;
+
     public static GenericPropertiesConfig parse(JsonValue propsConfig) {
+        
         GenericPropertiesConfig cfg = new GenericPropertiesConfig();
         if (!propsConfig.isNull()) {
             for (String propName : propsConfig.keys()) {
                 JsonValue detail = propsConfig.get(propName);
-                cfg.explicitlySearchable.put(new JsonPointer(propName), detail.get("searchable").asBoolean());
+                boolean propSearchable = detail.get("searchable").asBoolean();
+                cfg.explicitlySearchable.put(new JsonPointer(propName), propSearchable);
+                if (propSearchable) {
+                    cfg.explicitSearchableProperties = true;
+                }
             }
         }
+
         return cfg;
     }
 }

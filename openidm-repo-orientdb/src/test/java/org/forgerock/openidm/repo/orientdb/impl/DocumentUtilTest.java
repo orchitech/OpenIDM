@@ -1,7 +1,7 @@
 /*
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS HEADER.
  *
- * Copyright © 2011 ForgeRock AS. All rights reserved.
+ * Copyright © 2011-2013 ForgeRock AS. All rights reserved.
  *
  * The contents of this file are subject to the terms
  * of the Common Development and Distribution License
@@ -25,8 +25,10 @@ package org.forgerock.openidm.repo.orientdb.impl;
 
 import com.orientechnologies.orient.core.Orient;
 import com.orientechnologies.orient.core.db.document.ODatabaseDocumentTx;
+import com.orientechnologies.orient.core.engine.local.OEngineLocal;
 import com.orientechnologies.orient.core.metadata.schema.OType;
 import com.orientechnologies.orient.core.record.impl.ODocument;
+import com.orientechnologies.orient.server.OServer;
 import com.orientechnologies.orient.server.OServerMain;
 
 import java.util.ArrayList;
@@ -37,18 +39,19 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-import org.forgerock.openidm.objset.ConflictException;
+import org.forgerock.json.resource.ConflictException;
 
 import org.testng.annotations.*;
 import static org.testng.Assert.*;
-import static org.fest.assertions.Assertions.assertThat;
-import static org.fest.assertions.MapAssert.entry;
+import static org.fest.assertions.api.Assertions.assertThat;
+import static org.fest.assertions.api.Assertions.entry;
 
 public class DocumentUtilTest {
 
     String dbURL = "plocal:./target/docutiltestdb";
     ODatabaseDocumentTx db = null; 
     String orientDocClass = "Sample";
+    OServer server;
 
     @BeforeClass 
     public void init() throws Exception {
@@ -88,7 +91,7 @@ public class DocumentUtilTest {
 
         Map result = DocumentUtil.toMap(doc);
         
-        assertThat(result).includes(
+        assertThat(result).contains(
                 entry(DocumentUtil.TAG_ID, "client-assigned-id"), //"-1:-1"), // ID when doc not yet stored
                 entry(DocumentUtil.TAG_REV, "0"),      // Doc version starts at 0
                 entry("firstname", "Sam"), 
@@ -121,7 +124,7 @@ public class DocumentUtilTest {
         
         Map result = DocumentUtil.toMap(doc);
         
-        assertThat(result).includes(
+        assertThat(result).contains(
                 entry(DocumentUtil.TAG_ID, "client-assigned-id"), //"-1:-1"), // ID when doc not yet stored
                 entry(DocumentUtil.TAG_REV, "0"), // Doc version starts at 0
                 entry("firstname", "John"), 
@@ -132,14 +135,14 @@ public class DocumentUtilTest {
         assertThat(city).isInstanceOf(Map.class);
         assertThat((Map)city)
                 .hasSize(2)
-                .includes(entry("name", "Paris"), entry("country", "France"));
+                .contains(entry("name", "Paris"), entry("country", "France"));
         
         Object phonenumbers = result.get("phonenumbers");
         assertNotNull(phonenumbers, "phonenumbers map entry null");
         assertThat(phonenumbers).isInstanceOf(Map.class);
         assertThat((Map)phonenumbers)
                 .hasSize(2)
-                .includes(entry("home", "555-666-7777"), entry("mobile", "555-111-2222"));
+                .contains(entry("home", "555-666-7777"), entry("mobile", "555-111-2222"));
     }
     
     @Test
@@ -157,7 +160,7 @@ public class DocumentUtilTest {
         
         Map result = DocumentUtil.toMap(doc);
         
-        assertThat(result).includes(
+        assertThat(result).contains(
                 entry(DocumentUtil.TAG_ID, "client-assigned-id"), //"-1:-1"), // ID when doc not yet stored
                 entry(DocumentUtil.TAG_REV, "0"), // Doc version starts at 0
                 entry("firstname", "John"), 
@@ -172,12 +175,12 @@ public class DocumentUtilTest {
 
         assertThat(addr.get(0)).isInstanceOf(Map.class);
         Map firstEntry = (Map) addr.get(0); 
-        assertThat(firstEntry).includes(
+        assertThat(firstEntry).contains(
                 entry("type", "home"),
                 entry("street", "Main st."),
                 entry("city", "San Franciso"));
         Map secondEntry = (Map) addr.get(1); 
-        assertThat(secondEntry).includes(
+        assertThat(secondEntry).contains(
                 entry("type", "business"),
                 entry("street", "Wall st."),
                 entry("city", "New York")); 
@@ -200,7 +203,7 @@ public class DocumentUtilTest {
         
         Map result = DocumentUtil.toMap(doc);
         
-        assertThat(result).includes(
+        assertThat(result).contains(
                 entry(DocumentUtil.TAG_ID, "client-assigned-id"),
                 entry(DocumentUtil.TAG_REV, "0"));
 
@@ -233,7 +236,7 @@ public class DocumentUtilTest {
         
         Map result = DocumentUtil.toMap(doc);
         
-        assertThat(result).includes(
+        assertThat(result).contains(
                 entry(DocumentUtil.TAG_ID, "client-assigned-id"),
                 entry(DocumentUtil.TAG_REV, "0"));
 
@@ -269,7 +272,7 @@ public class DocumentUtilTest {
         
         Map result = DocumentUtil.toMap(doc);
         
-        assertThat(result).includes(
+        assertThat(result).contains(
                 entry(DocumentUtil.TAG_ID, "client-assigned-id"),
                 entry(DocumentUtil.TAG_REV, "0"));
 
@@ -522,7 +525,7 @@ public class DocumentUtilTest {
         
         Map result = DocumentUtil.toMap(intermediateResult);
         
-        assertThat(result).includes(
+        assertThat(result).contains(
                 entry(DocumentUtil.TAG_ID, "client-assigned-id"), 
                 entry(DocumentUtil.TAG_REV, "2"), 
                 entry("firstname", "John"), 
@@ -533,14 +536,14 @@ public class DocumentUtilTest {
         assertThat(checkCity).isInstanceOf(Map.class);
         assertThat((Map)checkCity)
                 .hasSize(2)
-                .includes(entry("name", "Paris"), entry("country", "France"));
+                .contains(entry("name", "Paris"), entry("country", "France"));
         
         Object phonenumbers = result.get("phonenumbers");
         assertNotNull(phonenumbers, "phonenumbers map entry null");
         assertThat(phonenumbers).isInstanceOf(Map.class);
         assertThat((Map)phonenumbers)
                 .hasSize(2)
-                .includes(entry("home", "555-666-7777"), entry("mobile", "555-111-2222"));
+                .contains(entry("home", "555-666-7777"), entry("mobile", "555-111-2222"));
     }
     
     @Test

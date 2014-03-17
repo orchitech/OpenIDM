@@ -32,14 +32,14 @@ import java.sql.SQLException;
  * @author aegloff
  */
 public class DB2SQLExceptionHandler extends DefaultSQLExceptionHandler {
-    
+
     /**
      * @InheritDoc
      */
     @Override
     public boolean isRetryable(SQLException ex, Connection connection) {
         // Re-tryable DB2 error codes
-        // -911 indicates DB2 rolled back already and expects a retry 
+        // -911 indicates DB2 rolled back already and expects a retry
         // -912 indicates deadlock or timeout.
         // -904 indicates resource limit was exceeded.
         if (-911 == ex.getErrorCode() || -912 == ex.getErrorCode() || -904 == ex.getErrorCode()) {

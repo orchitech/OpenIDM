@@ -1,226 +1,225 @@
 /*
- * The contents of this file are subject to the terms of the Common Development and
- * Distribution License (the License). You may not use this file except in compliance with the
- * License.
+ * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS HEADER.
  *
- * You can obtain a copy of the License at legal/CDDLv1.0.txt. See the License for the
- * specific language governing permission and limitations under the License.
+ * Copyright (c) 2011-2014 ForgeRock AS. All Rights Reserved
  *
- * When distributing Covered Software, include this CDDL Header Notice in each file and include
- * the License file at legal/CDDLv1.0.txt. If applicable, add the following below the CDDL
- * Header, with the fields enclosed by brackets [] replaced by your own identifying
- * information: "Portions Copyrighted [year] [name of copyright owner]".
+ * The contents of this file are subject to the terms
+ * of the Common Development and Distribution License
+ * (the License). You may not use this file except in
+ * compliance with the License.
  *
- * Copyright © 2011 ForgeRock AS. All rights reserved.
+ * You can obtain a copy of the License at
+ * http://forgerock.org/license/CDDLv1.0.html
+ * See the License for the specific language governing
+ * permission and limitations under the License.
+ *
+ * When distributing Covered Code, include this CDDL
+ * Header Notice in each file and include the License file
+ * at http://forgerock.org/license/CDDLv1.0.html
+ * If applicable, add the following below the CDDL Header,
+ * with the fields enclosed by brackets [] replaced by
+ * your own identifying information:
+ * "Portions Copyrighted [year] [name of copyright owner]"
  */
 
 package org.forgerock.openidm.managed;
 
-// Java SE
-import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.atomic.AtomicReference;
 
-// OSGi
-import org.osgi.service.component.ComponentContext;
-import org.osgi.service.component.ComponentException;
-
-// Felix SCR
 import org.apache.felix.scr.annotations.Activate;
 import org.apache.felix.scr.annotations.Component;
 import org.apache.felix.scr.annotations.ConfigurationPolicy;
 import org.apache.felix.scr.annotations.Deactivate;
+import org.apache.felix.scr.annotations.Modified;
 import org.apache.felix.scr.annotations.Properties;
 import org.apache.felix.scr.annotations.Property;
 import org.apache.felix.scr.annotations.Reference;
 import org.apache.felix.scr.annotations.ReferenceCardinality;
 import org.apache.felix.scr.annotations.ReferencePolicy;
-import org.apache.felix.scr.annotations.ReferenceStrategy;
 import org.apache.felix.scr.annotations.Service;
-
-// JSON Fluent
 import org.forgerock.json.fluent.JsonValue;
-import org.forgerock.json.fluent.JsonValueException;
-
-// JSON Resource
-import org.forgerock.json.resource.JsonResource;
-import org.forgerock.json.resource.JsonResourceRouter;
-
-// OpenIDM
-import org.forgerock.openidm.config.JSONEnhancedConfig;
+import org.forgerock.json.resource.ActionRequest;
+import org.forgerock.json.resource.ConnectionFactory;
+import org.forgerock.json.resource.CreateRequest;
+import org.forgerock.json.resource.DeleteRequest;
+import org.forgerock.json.resource.PatchRequest;
+import org.forgerock.json.resource.QueryRequest;
+import org.forgerock.json.resource.QueryResultHandler;
+import org.forgerock.json.resource.ReadRequest;
+import org.forgerock.json.resource.RequestHandler;
+import org.forgerock.json.resource.Resource;
+import org.forgerock.json.resource.ResultHandler;
+import org.forgerock.json.resource.Route;
+import org.forgerock.json.resource.Router;
+import org.forgerock.json.resource.ServerContext;
+import org.forgerock.json.resource.UpdateRequest;
+import org.forgerock.openidm.config.enhanced.JSONEnhancedConfig;
+import org.forgerock.openidm.core.ServerConstants;
 import org.forgerock.openidm.crypto.CryptoService;
-import org.forgerock.openidm.objset.InternalServerErrorException;
-import org.forgerock.openidm.scope.ScopeFactory;
-import org.forgerock.openidm.sync.SynchronizationListener;
+import org.forgerock.openidm.router.RouteService;
+import org.forgerock.script.ScriptRegistry;
+import org.osgi.framework.Constants;
+import org.osgi.service.component.ComponentContext;
+import org.osgi.service.component.ComponentException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
-// Deprecated
-import org.forgerock.openidm.objset.JsonResourceObjectSet;
-import org.forgerock.openidm.objset.ObjectSet;
-import org.forgerock.openidm.objset.ObjectSetContext;
-import org.forgerock.openidm.objset.ObjectSetJsonResource;
 
 /**
  * Provides access to managed objects.
- *
+ * 
  * @author Paul C. Bryan
  */
-@Component(
-    name = "org.forgerock.openidm.managed",
-    immediate = true,
-    policy = ConfigurationPolicy.REQUIRE
-)
-@Properties({
-    @Property(name = "service.description", value = "OpenIDM managed objects service"),
-    @Property(name = "service.vendor", value = "ForgeRock AS"),
-    @Property(name = "openidm.router.prefix", value = "managed")
-})
+@Component(name = ManagedObjectService.PID, immediate = true,
+        policy = ConfigurationPolicy.REQUIRE)
 @Service
-public class ManagedObjectService extends JsonResourceRouter {
+@Properties({
+    @Property(name = Constants.SERVICE_DESCRIPTION, value = "OpenIDM managed objects service"),
+    @Property(name = Constants.SERVICE_VENDOR, value = ServerConstants.SERVER_VENDOR_NAME),
+    @Property(name = ServerConstants.ROUTER_PREFIX, value = "/managed*") })
+public class ManagedObjectService implements RequestHandler {
 
-    /** Internal object set router service. */
-    @Reference(
-        name = "ref_ManagedObjectService_JsonResourceRouterService",
-        referenceInterface = JsonResource.class,
-        bind = "bindRouter",
-        unbind = "unbindRouter",
-        cardinality = ReferenceCardinality.MANDATORY_UNARY,
-        policy = ReferencePolicy.DYNAMIC,
-        target = "(service.pid=org.forgerock.openidm.router)"
-    )
-    protected ObjectSet router;
-    protected void bindRouter(JsonResource router) {
-        this.router = new JsonResourceObjectSet(router);
-    }
-    protected void unbindRouter(JsonResource router) {
-        this.router = null;
-    }
+    public static final String PID = "org.forgerock.openidm.managed";
 
-// TODO: Use router to send notifications to synchronization service.
-    /** Synchronization listeners. */
-    @Reference(
-        name="ref_ManagedObjectService_SynchronizationListener",
-        referenceInterface=SynchronizationListener.class,
-        bind="bindListener",
-        unbind="unbindListener",
-        cardinality=ReferenceCardinality.OPTIONAL_MULTIPLE,
-        policy=ReferencePolicy.DYNAMIC,
-        strategy=ReferenceStrategy.EVENT
-    )
-    protected final HashSet<SynchronizationListener> listeners = new HashSet<SynchronizationListener>();
-    protected void bindListener(SynchronizationListener listener) {
-        listeners.add(listener);
-    }
-    protected void unbindListener(SynchronizationListener listener) {
-        listeners.remove(listener);
-    }
+    /**
+     * Setup logging for the {@link ManagedObjectService}.
+     */
+    private final static Logger logger = LoggerFactory.getLogger(ManagedObjectService.class);
 
     /** Cryptographic service. */
-    @Reference(
-        name="ref_ManagedObjectService_CryptoService",
-        referenceInterface=CryptoService.class,
-        bind="bindCryptoService",
-        unbind="unbindCryptoService",
-        cardinality = ReferenceCardinality.MANDATORY_UNARY,
-        policy = ReferencePolicy.DYNAMIC
-    )
+    @Reference(policy = ReferencePolicy.DYNAMIC)
     protected CryptoService cryptoService;
-    protected void bindCryptoService(CryptoService cryptoService) {
-        this.cryptoService = cryptoService;
-    }
-    protected void unbindCryptoService(CryptoService cryptoService) {
-        this.cryptoService = null;
+
+    /** Script Registry service. */
+    @Reference(policy = ReferencePolicy.DYNAMIC)
+    protected ScriptRegistry scriptRegistry;
+
+    /** Route service. */
+    @Reference(referenceInterface = RouteService.class,
+            policy = ReferencePolicy.DYNAMIC,
+            bind = "bindSyncRoute",
+            unbind = "unbindSyncRoute",
+            cardinality = ReferenceCardinality.OPTIONAL_UNARY,
+            target = "(" + ServerConstants.ROUTER_PREFIX + "=/sync*)")
+    private final AtomicReference<RouteService> syncRoute = new AtomicReference<RouteService>();
+
+    private void bindSyncRoute(final RouteService service) {
+        syncRoute.set(service);
     }
 
-    /** Scope factory service. */
-    @Reference(
-        name = "ref_ManagedObjectService_ScopeFactory",
-        referenceInterface = ScopeFactory.class,
-        bind = "bindScopeFactory",
-        unbind = "unbindScopeFactory",
-        cardinality = ReferenceCardinality.MANDATORY_UNARY,
-        policy = ReferencePolicy.DYNAMIC
-    )
-    private ScopeFactory scopeFactory;
-    protected void bindScopeFactory(ScopeFactory scopeFactory) {
-        this.scopeFactory = scopeFactory;
-    }
-    protected void unbindScopeFactory(ScopeFactory scopeFactory) {
-        this.scopeFactory = null;
+    private void unbindSyncRoute(final RouteService service) {
+        syncRoute.set(null);
     }
 
-    /** TODO: Description. */
-    private ComponentContext context;
+    /* The Connection Factory */
+    @Reference(policy = ReferencePolicy.STATIC, target="(service.pid=org.forgerock.openidm.internal)")
+    protected ConnectionFactory connectionFactory;
+
+    private final ConcurrentMap<String, Route> managedRoutes = new ConcurrentHashMap<String, Route>();
+
+    private final Router managedRouter = new Router();
+
 
     /**
      * TODO: Description.
-     *
-     * @param context TODO.
+     * 
+     * @param context
+     *            TODO.
      */
     @Activate
-    protected void activate(ComponentContext context) {
-        this.context = context;
-        JsonValue config = new JsonValue(new JSONEnhancedConfig().getConfiguration(context));
-        try {
-            for (JsonValue value : config.get("objects").expect(List.class)) {
-                ManagedObjectSet objectSet = new ManagedObjectSet(this, value); // throws JsonValueException
-                String name = objectSet.getName();
-                if (routes.containsKey(name)) {
-                    throw new JsonValueException(value, "object " + name + " already defined");
-                }
-                routes.put(name, objectSet);
+    protected void activate(ComponentContext context) throws Exception {
+        JsonValue configuration = JSONEnhancedConfig.newInstance().getConfigurationAsJson(context);
+        for (JsonValue value : configuration.get("objects").expect(List.class)) {
+            ManagedObjectSet objectSet = new ManagedObjectSet(scriptRegistry, cryptoService, syncRoute, connectionFactory, value);
+            if (managedRoutes.containsKey(objectSet.getName())) {
+                throw new ComponentException("Duplicate definition of managed object type: " + objectSet.getName());
             }
-        } catch (JsonValueException jve) {
-            throw new ComponentException("Configuration error", jve);
+            managedRoutes.put(objectSet.getName(),managedRouter.addRoute(objectSet.getTemplate(), objectSet));
+        }
+    }
+
+    @Modified
+    protected void modified(ComponentContext context) throws Exception {
+        JsonValue configuration = JSONEnhancedConfig.newInstance().getConfigurationAsJson(context);
+
+        Set<String> tempRoutes = new HashSet<String>();
+        for (JsonValue value : configuration.get("objects").expect(List.class)) {
+            ManagedObjectSet objectSet = new ManagedObjectSet(scriptRegistry, cryptoService, syncRoute, connectionFactory, value);
+            if (tempRoutes.contains(objectSet.getName())) {
+                throw new ComponentException("Duplicate definition of managed object type: " + objectSet.getName());
+            }
+            Route oldRoute = managedRoutes.get(objectSet.getName());
+            if (null != oldRoute) {
+                managedRouter.removeRoute(oldRoute);
+            }
+            managedRoutes.put(objectSet.getName(),managedRouter.addRoute(objectSet.getTemplate(), objectSet));
+            tempRoutes.add(objectSet.getName());
+        }
+        for (Map.Entry<String, Route> entry : managedRoutes.entrySet()){
+           //Use ConcurrentMap to avoid ConcurrentModificationException with this iteration
+            if (tempRoutes.contains(entry.getKey())) {
+                continue;
+            }
+            managedRouter.removeRoute(managedRoutes.remove(entry.getKey()));
         }
     }
 
     /**
      * TODO: Description.
-     *
-     * @param context TODO.
+     * 
+     * @param context
+     *            TODO.
      */
     @Deactivate
     protected void deactivate(ComponentContext context) {
-        this.context = null;
-        routes.clear();
+        managedRouter.removeAllRoutes();
+        managedRoutes.clear();
     }
 
-    /**
-     * @return The internal object set for which operations will be applied. If there is no
-     * router, throws {@link InternalServerErrorException}.
-     * @throws org.forgerock.openidm.objset.InternalServerErrorException
-     */
-    ObjectSet getRouter() throws InternalServerErrorException {
-        if (router == null) {
-            throw new InternalServerErrorException("Not bound to internal router");
-        }
-        return router;
+    @Override
+    public void handleAction(ServerContext context, ActionRequest request,
+            ResultHandler<JsonValue> handler) {
+        managedRouter.handleAction(context, request, handler);
     }
 
-    /**
-     * TODO: Description.
-     *
-     * @return TODO.
-     */
-    Map<String, Object> newScope() {
-        return scopeFactory.newInstance(ObjectSetContext.get());
+    @Override
+    public void handleCreate(ServerContext context, CreateRequest request,
+            ResultHandler<Resource> handler) {
+        managedRouter.handleCreate(context, request, handler);
     }
 
-    /**
-     * TODO: Description.
-     * @return
-     */
-    Set<SynchronizationListener> getListeners() {
-        return listeners;
+    @Override
+    public void handleDelete(ServerContext context, DeleteRequest request,
+            ResultHandler<Resource> handler) {
+        managedRouter.handleDelete(context, request, handler);
     }
 
-    /**
-     * TODO: Description.
-     * @return
-     */
-    CryptoService getCryptoService() {
-        return cryptoService;
+    @Override
+    public void handlePatch(ServerContext context, PatchRequest request,
+            ResultHandler<Resource> handler) {
+        managedRouter.handlePatch(context, request, handler);
+    }
+
+    @Override
+    public void handleQuery(ServerContext context, QueryRequest request, QueryResultHandler handler) {
+        managedRouter.handleQuery(context, request, handler);
+    }
+
+    @Override
+    public void handleRead(ServerContext context, ReadRequest request,
+            ResultHandler<Resource> handler) {
+        managedRouter.handleRead(context, request, handler);
+    }
+
+    @Override
+    public void handleUpdate(ServerContext context, UpdateRequest request,
+            ResultHandler<Resource> handler) {
+        managedRouter.handleUpdate(context, request, handler);
     }
 }

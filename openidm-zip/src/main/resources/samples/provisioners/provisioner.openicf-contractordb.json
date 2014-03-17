@@ -59,7 +59,7 @@
          "datasource" : "",
          "jndiProperties" : null
       },
-   "syncFailureHandler" :
+   "syncFailureHandler" : 
       {
          "maxRetries" : 5,
          "postRetryAction" : "logged-ignore"

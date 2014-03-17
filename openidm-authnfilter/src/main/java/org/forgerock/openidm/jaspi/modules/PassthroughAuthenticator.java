@@ -11,28 +11,24 @@
  * Header, with the fields enclosed by brackets [] replaced by your own identifying
  * information: "Portions copyright [year] [name of copyright owner]".
  *
- * Copyright 2013 ForgeRock Inc.
+ * Copyright 2013-2014 ForgeRock Inc.
  */
 
 package org.forgerock.openidm.jaspi.modules;
 
 import org.apache.commons.lang3.StringUtils;
 import org.forgerock.json.fluent.JsonValue;
-import org.forgerock.json.resource.JsonResource;
-import org.forgerock.json.resource.JsonResourceAccessor;
-import org.forgerock.json.resource.JsonResourceContext;
-import org.forgerock.json.resource.JsonResourceException;
-import org.forgerock.openidm.core.ServerConstants;
-import org.forgerock.openidm.http.ContextRegistrator;
-import org.osgi.framework.BundleContext;
-import org.osgi.framework.InvalidSyntaxException;
-import org.osgi.framework.ServiceReference;
+import org.forgerock.json.resource.ActionRequest;
+import org.forgerock.json.resource.ConnectionFactory;
+import org.forgerock.json.resource.Requests;
+import org.forgerock.json.resource.Resource;
+import org.forgerock.json.resource.ResourceException;
+import org.forgerock.json.resource.ServerContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import javax.security.auth.message.AuthException;
-import java.util.Collection;
-import java.util.HashMap;
+import java.util.Arrays;
 import java.util.List;
 
 /**
@@ -45,8 +41,10 @@ public class PassthroughAuthenticator {
 
     final static Logger logger = LoggerFactory.getLogger(PassthroughAuthenticator.class);
 
+    private final ConnectionFactory connectionFactory;
+    private final ServerContext context;
     private final String passThroughAuth;
-    private final JsonValue propertyMapping;
+    private final String userRolesProperty;
     private final List<String> defaultRoles;
 
     /**
@@ -56,88 +54,57 @@ public class PassthroughAuthenticator {
      * @param userRolesProperty The user roles property.
      * @param defaultRoles The list of default roles.
      */
-    public PassthroughAuthenticator(String passThroughAuth, JsonValue propertyMapping, List<String> defaultRoles) {
+    public PassthroughAuthenticator(ConnectionFactory connectionFactory, ServerContext context, String passThroughAuth, String userRolesProperty, List<String> defaultRoles) {
+        this.connectionFactory = connectionFactory;
+        this.context = context;
         this.passThroughAuth = passThroughAuth;
-        this.propertyMapping = propertyMapping;
+        this.userRolesProperty = userRolesProperty;
         this.defaultRoles = defaultRoles;
     }
 
     /**
-     * Performs the ICF Passthrough authentication.
+     * Performs the AD Passthrough authentication.
      *
-     * @param authData The AuthData object.
+     * @param username The user's username
      * @param password The user's password.
-     * @return The AuthData object the was passed in, with information set on it from the results of the authentication
-     * request.
-     * @throws AuthException If pass-through authentication fails.
+     * @param securityContextMapper The SecurityContextMapper object.
+     * @return <code>true</code> if authentication is successful.
+     * @throws AuthException if there is a problem whilst attempting to authenticate the user.
      */
-    public boolean authenticate(AuthData authData, String password) throws AuthException {
+    public boolean authenticate(String username, String password, SecurityContextMapper securityContextMapper)
+            throws AuthException {
 
-        String userRolesProperty = propertyMapping.get("userRoles").asString();
-
-        if (!StringUtils.isEmpty(passThroughAuth) && !"anonymous".equals(authData.getUsername())) {
-            JsonResource router = getJsonResource();
-            if (null != router) {
-                JsonResourceAccessor accessor = new JsonResourceAccessor(router,
-                        JsonResourceContext.getContext(JsonResourceContext.newRootContext(), "resource"));
-
-                JsonValue params = new JsonValue(new HashMap<String, Object>());
-                params.put(ServerConstants.ACTION_NAME, "authenticate");
-                params.put("username", authData.getUsername());
-                params.put("password", password);
-                try {
-                    JsonValue result  = accessor.action(passThroughAuth, params, null);
-                    boolean authenticated = result.isDefined(ServerConstants.OBJECT_PROPERTY_ID);
-                    if (authenticated) {
-                        authData.setResource(passThroughAuth);
-                        authData.setUserId(result.get(ServerConstants.OBJECT_PROPERTY_ID).required().asString());
-
-                        result  = accessor.read(passThroughAuth + "/" + authData.getUserId());
-
-                        if (userRolesProperty != null && result.isDefined(userRolesProperty)) {
-                            authData.setRoles((List) result.get(userRolesProperty).getObject());
-                        } else if (authData.getRoles().size() == 0) {
-                            authData.getRoles().addAll(defaultRoles);
-                        }
-
-                        return true;
-                    }
-                } catch (JsonResourceException e) {
-                    if (logger.isDebugEnabled()) {
-                        logger.debug("Failed pass-through authentication of {} on {}.",
-                                authData.getUsername(), passThroughAuth, e);
-                    }
-                    if (e.isServerError()) {
-                        throw new AuthException("Failed pass-through authentication of " + authData.getUsername()
-                                + " on " + passThroughAuth + ".");
-                    }
-                    //authentication failed
-                    return false;
+        if (!StringUtils.isEmpty(passThroughAuth) && !"anonymous".equals(username)) {
+            ActionRequest actionRequest = Requests.newActionRequest(passThroughAuth, "authenticate");
+            actionRequest.setAdditionalParameter("username", username);
+            actionRequest.setAdditionalParameter("password", password);
+            try {
+                JsonValue result = connectionFactory.getConnection().action(context, actionRequest);
+                boolean authenticated = result.isDefined(Resource.FIELD_CONTENT_ID);
+                if (authenticated) {
+                    // This is what I was talking about. We don't have a way to
+                    // populate this. Use script to overcome it
+                    securityContextMapper.setRoles(Arrays.asList("openidm-admin", "openidm-authorized"));
+                    securityContextMapper.setResource(passThroughAuth);
+                    securityContextMapper.setUserId(result.get(Resource.FIELD_CONTENT_ID).asString());
+                    securityContextMapper.setUsername(username);
+                    return true;
                 }
+            } catch (ResourceException e) {
+                if (logger.isDebugEnabled()) {
+                    logger.debug("Failed pass-through authentication of {} on {}.", username, passThroughAuth, e);
+                }
+                if (e.isServerError()) { // HTTP server-side error
+                    throw new AuthException("Failed pass-through authentication of " + username + " on "
+                            + passThroughAuth + ".");
+                }
+                //authentication failed
+                return false;
             }
+
+            //TODO need to look at setting resource on authz and setting roles on authz, as well as what uses this to ensure security context is populated, like the old Servlet class used to do!
         }
 
         return false;
-    }
-
-    /**
-     * Gets the Json Resource.
-     *
-     * @return The JsonResource.
-     */
-    private JsonResource getJsonResource() {
-        // TODO: switch to service trackers
-        BundleContext ctx = ContextRegistrator.getBundleContext();
-        Collection<ServiceReference<JsonResource>> routers = null;
-        try {
-            routers = ctx.getServiceReferences(JsonResource.class, "(openidm.restlet.path=/)");
-        } catch (InvalidSyntaxException e) {
-            /* ignore, the filter is tested */
-        }
-        if (ctx != null) {
-            return routers.size() > 0 ? ctx.getService(routers.iterator().next()) : null;
-        } else {
-            return null;
-        }
     }
 }

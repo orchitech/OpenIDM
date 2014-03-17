@@ -8,7 +8,7 @@
             },
             "onDelete" : {
                 "type" : "text/javascript",
-                "file" : "bin/defaults/script/ui/onDelete-user-cleanup.js"
+                "file" : "ui/onDelete-user-cleanup.js"
             },
             "properties" : [
                 {

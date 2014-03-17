@@ -1,7 +1,7 @@
 /*
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS HEADER.
  *
- * Copyright © 2011 ForgeRock AS. All rights reserved.
+ * Copyright (c) 2011-2013 ForgeRock AS. All Rights Reserved
  *
  * The contents of this file are subject to the terms
  * of the Common Development and Distribution License
@@ -20,8 +20,8 @@
  * with the fields enclosed by brackets [] replaced by
  * your own identifying information:
  * "Portions Copyrighted [year] [name of copyright owner]"
- * $Id$
  */
+
 package org.forgerock.openidm.provisioner.openicf.commons;
 
 import org.forgerock.json.fluent.JsonValue;
@@ -60,7 +60,11 @@ import static org.forgerock.json.schema.validator.Constants.*;
  * @version $Revision$ $Date$
  */
 public class ConnectorUtil {
-    private final static Logger TRACE = LoggerFactory.getLogger(ConnectorUtil.class);
+
+    /**
+     * Setup logging for the {@link ConnectorUtil}.
+     */
+    private final static Logger logger = LoggerFactory.getLogger(ConnectorUtil.class);
 
     private static final String OPENICF_BUNDLENAME = "bundleName";
     private static final String OPENICF_BUNDLEVERSION = "bundleVersion";
@@ -158,6 +162,8 @@ public class ConnectorUtil {
         typeMap.put(JAVA_TYPE_UID, Uid.class);
         typeMap.put(JAVA_TYPE_URI, URI.class);
     }
+
+    private static final String BUFFER_SIZE = "bufferSize";
 
 
     //Util Methods
@@ -340,7 +346,7 @@ public class ConnectorUtil {
                     target.setTimeout(e.getValue(), coercedTypeCasting(value.asNumber(), int.class));
                 }
             } catch (IllegalArgumentException e1) {
-                TRACE.error("Type casting exception of {} from {} to int", new Object[]{value.getObject(), value.getObject().getClass().getCanonicalName()}, e);
+                logger.error("Type casting exception of {} from {} to int", new Object[]{value.getObject(), value.getObject().getClass().getCanonicalName()}, e);
             }
         }
     }
@@ -448,6 +454,9 @@ public class ConnectorUtil {
         }
         JsonValue configurationProperties = source.get(OPENICF_CONFIGURATION_PROPERTIES);
         configureConfigurationProperties(configurationProperties, target.getConfigurationProperties());
+        if (source.isDefined(BUFFER_SIZE)) {
+            target.setProducerBufferSize(source.get(BUFFER_SIZE).required().asInteger());
+        }
     }
 
     public static void createSystemConfigurationFromAPIConfiguration(APIConfiguration source, JsonValue target) {
@@ -477,7 +486,7 @@ public class ConnectorUtil {
     }
 
     /**
-     * Create a new {@link ConnectorKey} instance form the {@code configuration} object.
+     * Create a new {@link ConnectorKey} newBuilder form the {@code configuration} object.
      * <p/>
      * The Configuration object MUST contain the three required String properties.
      * <ul>
@@ -487,7 +496,7 @@ public class ConnectorUtil {
      * </ul>
      *
      * @param configuration
-     * @return new instance of {@link ConnectorKey}
+     * @return new newBuilder of {@link ConnectorKey}
      * @throws IllegalArgumentException when one of the three required parameter is null.
      * @throws IOException              when the property value can not be converted to String.
      */
@@ -551,8 +560,8 @@ public class ConnectorUtil {
     public static Map<String, ObjectClassInfoHelper> getObjectTypes(JsonValue configuration) throws JsonValueException, SchemaException {
         JsonValue objectTypes = configuration.get(OPENICF_OBJECT_TYPES);
         Map<String, ObjectClassInfoHelper> result = new HashMap<String, ObjectClassInfoHelper>(objectTypes.expect(Map.class).asMap().size());
-        for (Map.Entry<String, Object> entry : objectTypes.asMap().entrySet()) {
-            result.put(entry.getKey(), new ObjectClassInfoHelper((Map<String, Object>) entry.getValue()));
+        for (String objectType : objectTypes.keys()) {
+            result.put(objectType, new ObjectClassInfoHelper(objectTypes.get(objectType)));
         }
         return result;
     }
@@ -812,8 +821,6 @@ public class ConnectorUtil {
                     return (T) source;
                 } else if (List.class.isAssignableFrom(sourceClass)) {
                     return (T) source;
-                } else if (sourceClass.isArray()) {
-                    return (T) Arrays.asList(source); //Items in array may need to be converted too.
                 } else if (sourceClass == QualifiedUid.class) {
                     //@TODO: Not null safe!!!
                     Map<String, Object> v = new HashMap<String, Object>(2);
@@ -1146,16 +1153,16 @@ public class ConnectorUtil {
                 }
             }
         } catch (Exception e) {
-            if (TRACE.isDebugEnabled()) {
-                TRACE.error("Failed to coerce {} from {} to {} ", new Object[]{source, sourceClass.getCanonicalName(), targetClazz.getCanonicalName()}, e);
+            if (logger.isDebugEnabled()) {
+                logger.error("Failed to coerce {} from {} to {} ", new Object[]{source, sourceClass.getCanonicalName(), targetClazz.getCanonicalName()}, e);
             } else {
-                TRACE.error("Failed to coerce from {} to {} ", new Object[]{sourceClass.getCanonicalName(), targetClazz.getCanonicalName()}, e);
+                logger.error("Failed to coerce from {} to {} ", new Object[]{sourceClass.getCanonicalName(), targetClazz.getCanonicalName()}, e);
             }
             throw new IllegalArgumentException(source.getClass().getCanonicalName() + " to " + targetClazz.getCanonicalName(), e);
         }
 
         if (!coerced) {
-            TRACE.error("Can not coerce {} to {}", sourceClass.getCanonicalName(), targetClazz.getCanonicalName());
+            logger.error("Can not coerce {} to {}", sourceClass.getCanonicalName(), targetClazz.getCanonicalName());
             throw new IllegalArgumentException(source.getClass().getCanonicalName() + " to " + targetClazz.getCanonicalName());
         }
         return result;

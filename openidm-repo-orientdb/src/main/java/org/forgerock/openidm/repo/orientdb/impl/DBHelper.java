@@ -29,8 +29,8 @@ import java.util.List;
 import java.util.Map;
 
 import org.forgerock.json.fluent.JsonValue;
-import org.forgerock.openidm.config.InvalidException;
-import org.forgerock.openidm.objset.ConflictException;
+import org.forgerock.json.resource.ConflictException;
+import org.forgerock.openidm.config.enhanced.InvalidException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -62,9 +62,6 @@ public class DBHelper {
      * Also can initialize/create/update the DB to meet the passed
      * configuration if setupDB is enabled
      * 
-     * An existing pool currently does not get resized to the passed min max settings,
-     * only newly created pools.
-     * 
      * Do not close the returned pool directly as it may be used by others.
      * 
      * To cleanly shut down the application, call closePools at the end
@@ -78,7 +75,7 @@ public class DBHelper {
      * @param setupDB true if it should also check the DB exists in the state
      * to match the passed configuration, and to set it up to match 
      * @return the pool
-     * @throws org.forgerock.openidm.config.InvalidException
+     * @throws org.forgerock.openidm.config.enhanced.InvalidException
      */
     public synchronized static ODatabaseDocumentPool getPool(String dbURL, String user, String password, 
             int minSize, int maxSize, JsonValue completeConfig, boolean setupDB) throws InvalidException {
@@ -96,7 +93,6 @@ public class DBHelper {
             }
             logger.debug("Getting pool {}", dbURL);
             pool = pools.get(dbURL);
-
             if (pool == null) {
                 pool = initPool(dbURL, user, password, minSize, maxSize, completeConfig);
                 pools.put(dbURL, pool);
@@ -159,20 +155,6 @@ public class DBHelper {
     }
     
     /**
-     * Close and remove a pool managed by this helper
-     */
-    public synchronized static void closePool(String dbUrl, ODatabaseDocumentPool pool) {
-        logger.debug("Close DB pool for {} {}", dbUrl, pool);
-        try {
-            pools.remove(dbUrl);
-            pool.close();
-            logger.trace("Closed pool for {} {}", dbUrl, pool);
-        } catch (Exception ex) {
-            logger.info("Failure reported in closing pool {} {}", new Object[] {dbUrl, pool, ex});
-        }
-    }
-    
-    /**
      * Initialize the DB pool.
      * @param dbURL the orientdb URL
      * @param user the orientdb user to connect
@@ -181,7 +163,7 @@ public class DBHelper {
      * @param maxSize the orientdb pool maximum size
      * @param completeConfig
      * @return the initialized pool
-     * @throws org.forgerock.openidm.config.InvalidException
+     * @throws org.forgerock.openidm.config.enhanced.InvalidException
      */
     private static ODatabaseDocumentPool initPool(String dbURL, String user, String password, 
             int minSize, int maxSize, JsonValue completeConfig) throws InvalidException {
@@ -190,22 +172,9 @@ public class DBHelper {
         // Enable transaction log
         OGlobalConfiguration.TX_USE_LOG.setValue(true);
         
-        // Conservative defaults to immediately disk sync.
-        // Can be relaxed via config for reliable (RAID) hardware
+        // Immediate disk sync for commit 
+        OGlobalConfiguration.TX_COMMIT_SYNCH.setValue(true);
         
-        // Immediate disk sync for every record operation, OrientDB setting for nonTX.recordUpdate.synch
-        boolean nonTxRecordUpdateSync = completeConfig.get("nonTransactionRecordUpdateSync")
-                .defaultTo(Boolean.TRUE).asBoolean();
-        OGlobalConfiguration.NON_TX_RECORD_UPDATE_SYNCH.setValue(nonTxRecordUpdateSync);
-        
-        // Immediate disk sync for each transaction log, OrientDB setting for tx.log.sync
-        boolean txLogSync = completeConfig.get("transactionLogSynch").defaultTo(Boolean.TRUE).asBoolean();
-        OGlobalConfiguration.TX_LOG_SYNCH.setValue(txLogSync);
-        
-        // Immediate disk sync for commit, OrientDB setting for tx.commit.sync
-        boolean txCommitSync = completeConfig.get("transactionCommitSynch").defaultTo(Boolean.TRUE).asBoolean();
-        OGlobalConfiguration.TX_COMMIT_SYNCH.setValue(txCommitSync);
-
         // Have the storage closed when the DB is closed.
         OGlobalConfiguration.STORAGE_KEEP_OPEN.setValue(false);
         
@@ -220,10 +189,10 @@ public class DBHelper {
             if (pool != null) {
                 pool.close();
             }
-            // Use our own sized pool, rather than the global one
-            // pool = ODatabaseDocumentPool.global();
-            pool = new ODatabaseDocumentPool();
-            pool.setup(minSize, maxSize);
+            pool = ODatabaseDocumentPool.global();
+            // Moving from 0.9.25 to 1.0 RC had to change this
+            //ODatabaseDocumentPool pool = ODatabaseDocumentPool.global();
+            //pool.setup(minSize, maxSize);
             warmUpPool(pool, dbURL, user, password, 1);
             
             boolean finalTry = (retryCount >= maxRetry);
@@ -318,12 +287,9 @@ public class DBHelper {
         // boolean dbExists = new OServerAdmin(dbURL).connect(user, password).existsDatabase();
 
         // Local DB we can auto populate 
-        if (isLocalDB(dbURL)) {
+        if (isLocalDB(dbURL) || isMemoryDB(dbURL)) {
             if (db.exists()) {
                 logger.info("Using DB at {}", dbURL);
-                // Make sure the db is closed
-                db.close();
-                // open the db
                 db.open(user, password); 
                 populateSample(db, completeConfig);
             } else { 
@@ -349,12 +315,25 @@ public class DBHelper {
      * @throws InvalidException if the dbURL is null or otherwise known to be invalid
      */
     public static boolean isLocalDB(String dbURL) throws InvalidException {
+        if (dbURL == null) {
+            throw new InvalidException("dbURL is not set");
+        }
+        return dbURL.startsWith("local:") || dbURL.startsWith("plocal");
+    }
+
+    /**
+     * Whether the URL represents a memory DB
+     * @param dbURL the OrientDB db url
+     * @return true if local, false if remote
+     * @throws InvalidException if the dbURL is null or otherwise known to be invalid
+     */
+    public static boolean isMemoryDB(String dbURL) throws InvalidException {
     	if (dbURL == null) {
     		throw new InvalidException("dbURL is not set");
     	}
-    	return dbURL.startsWith("local:") || dbURL.startsWith("plocal");
+    	return dbURL.startsWith("memory:");
     }
-
+    
     // TODO: Review the initialization mechanism
     private static void populateSample(ODatabaseDocumentTx db, JsonValue completeConfig) 
             throws InvalidException {

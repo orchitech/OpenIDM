@@ -32,20 +32,20 @@ import org.forgerock.openidm.repo.jdbc.SQLExceptionHandler;
 
 /**
  * Default handler to help handle SQLExceptions across different DB implementations
- * 
+ *
  * Specific implementations and/or overrides may be needed for a given database supported.
  *
  * @author aegloff
  */
 public class DefaultSQLExceptionHandler implements SQLExceptionHandler {
-    
+
     /**
      * @InheritDoc
      */
     public boolean isErrorType(SQLException ex, ErrorType errorType) {
         return XOpenErrorMapping.isErrorType(ex, errorType);
     }
-    
+
     /**
      * @InheritDoc
      */

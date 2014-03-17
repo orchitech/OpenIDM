@@ -117,19 +117,19 @@
 ////        Assert.assertNotNull(root);
 ////        Map<String, Object> properties = new HashMap<String, Object>(1);
 ////        properties.put(ConnectorInfoProviderService.PROPERTY_OPENICF_CONNECTOR_URL, root);
-////        ConnectorInfoProviderService instance = new ConnectorInfoProviderService();
-////        instance.activate(properties);
+////        ConnectorInfoProviderService newBuilder = new ConnectorInfoProviderService();
+////        newBuilder.activate(properties);
 //    }
 //
 //    //@Test
 //    public void activatorTest() throws IOException {
-////        URL connectorConfigurationURL = RemoteConnectorServerTest.class.getResource("/config/ConnectorInfoProviderServiceConfiguration.json");
+////        URL connectorConfigurationURL = RemoteConnectorServerTest.class.getResource("/config/provisioner.openicf.connectorinfoprovider.json");
 ////        Assert.assertNotNull(connectorConfigurationURL);
 ////        ObjectMapper mapper = new ObjectMapper();
 ////        Map<String, Object> properties = mapper.readValue(connectorConfigurationURL, Map.class);
 ////
 ////
-////        ConnectorInfoProviderService instance = new ConnectorInfoProviderService();
-////        instance.activate(properties);
+////        ConnectorInfoProviderService newBuilder = new ConnectorInfoProviderService();
+////        newBuilder.activate(properties);
 //    }
 //}

@@ -41,24 +41,18 @@ define("org/forgerock/openidm/ui/user/login/InternalLoginHelper", [
         cookieHelper.deleteCookie("session-jwt", "/", ""); // resets the session cookie to discard old session that may still exist
         userDelegate.login(params.userName, params.password, 
             function(user) {
-                conf.globalData.userComponent = user.userid.component;
-                
-                userDelegate.getUserById(user.userid.id, user.userid.component, 
-                    function(userData) {
-                        userData.roles = user.roles; // the "roles" attribute comes from the security context, rather than the read of the user
-                        successCallback(userData);
-                    }, 
-                    errorCallback, 
-                    // supress 403 errors at this stage
-                    {"forbidden": { status: "403"}}
-                ); 
-            }, 
+                conf.globalData.userComponent = user.component;
+                successCallback(user);
+            },
             function() {
                 if (errorCallback) {
                     errorCallback();
                 }
-            }, 
+            },
             {
+                "forbidden": { 
+                    status: "403"
+                },
                 "unauthorized": { 
                     status: "401", 
                     message: "authenticationFailed"
@@ -73,39 +67,26 @@ define("org/forgerock/openidm/ui/user/login/InternalLoginHelper", [
     };
     
     obj.getLoggedUser = function(successCallback, errorCallback) {
-        try{
-            userDelegate.getProfile(function(user) {
-                conf.globalData.userComponent = user.userid.component;
-                
-                userDelegate.getUserById(user.userid.id, user.userid.component, 
-                    function(userData) {
-                        userData.roles = user.roles; // the "roles" attribute comes from the security context, rather than the read of the user
-                        if (!userData.userName) {
-                            userData.userName = user.username;
-                        }
-                        successCallback(userData);
-                    }, 
-                    function () {
-                        if (!window.location.hash.replace(/^#/, '').match(router.configuration.routes.logout.url)) {
-                            errorCallback();
-                        } else {
-                            errorCallback();
-                        }
-                    }, 
-                    {"forbidden": { status: "403"}}
-                );
-            }, function() {
-                errorCallback();
-            }, 
+        userDelegate.getProfile(
+            function(user) {
+                conf.globalData.userComponent = user.component;
+                successCallback(user);
+            },
+            function() {
+                if (errorCallback) {
+                    errorCallback();
+                }
+            },
             {
+                "forbidden": { 
+                    status: "403"
+                },
                 "unauthorized": { 
                     status: "401"
                 }
-            });
-        } catch(e) {
-            console.log(e);
-            errorCallback();
-        }
+            }            
+        );
+
     };
     return obj;
 });

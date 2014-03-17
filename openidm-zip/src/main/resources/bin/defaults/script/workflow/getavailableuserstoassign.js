@@ -22,14 +22,14 @@
  * "Portions Copyrighted [year] [name of copyright owner]"
  */
 
-if (request.method !== "query") {
+if (request.method !== "action") {
     throw { 
-        "openidmCode" : 403, 
+        "code" : 403,
         "message" : "Access denied"
     };
 }
 
-if (!request.params || !request.params.taskId) {
+if (!request.additionalParameters || !request.additionalParameters.taskId) {
     throw "Required param: taskId";
 }
 
@@ -82,7 +82,7 @@ if (!request.params || !request.params.taskId) {
     user,
     username,
     assigneeUserName,
-    task = openidm.read("workflow/taskinstance/" + request.params.taskId);
+    task = openidm.read("workflow/taskinstance/" + request.additionalParameters.taskId);
     
     if (!task) {
         throw "Task Not Found";
@@ -111,7 +111,7 @@ if (!request.params || !request.params.taskId) {
     for (i = 0; i < candidateGroups.length; i++) {
         candidateGroup = candidateGroups[i];
         params = {
-            "_queryId": "get-users-of-role",
+            "_queryId": "get-users-of-direct-role",
             "role": candidateGroup
         };
         result = openidm.query("managed/user", params);

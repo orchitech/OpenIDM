@@ -1,7 +1,7 @@
 /*
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS HEADER.
  *
- * Copyright (c) 2012 ForgeRock AS. All Rights Reserved
+ * Copyright (c) 2012-2013 ForgeRock AS. All Rights Reserved
  *
  * The contents of this file are subject to the terms
  * of the Common Development and Distribution License
@@ -25,8 +25,13 @@
 package org.forgerock.openidm.policy;
 
 import java.util.ArrayList;
+import java.util.Dictionary;
+import java.util.EnumSet;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+
+import javax.script.Bindings;
 
 import org.apache.felix.scr.annotations.Activate;
 import org.apache.felix.scr.annotations.Component;
@@ -35,194 +40,142 @@ import org.apache.felix.scr.annotations.Deactivate;
 import org.apache.felix.scr.annotations.Modified;
 import org.apache.felix.scr.annotations.Properties;
 import org.apache.felix.scr.annotations.Property;
-import org.apache.felix.scr.annotations.Reference;
-import org.apache.felix.scr.annotations.ReferenceCardinality;
-import org.apache.felix.scr.annotations.ReferencePolicy;
-import org.apache.felix.scr.annotations.Service;
 import org.forgerock.json.fluent.JsonValue;
-import org.forgerock.json.resource.JsonResource;
-import org.forgerock.json.resource.JsonResourceException;
-import org.forgerock.openidm.config.JSONEnhancedConfig;
+import org.forgerock.json.resource.ActionRequest;
+import org.forgerock.json.resource.ReadRequest;
+import org.forgerock.json.resource.RequestType;
+import org.forgerock.json.resource.ResourceException;
+import org.forgerock.json.resource.ServerContext;
+import org.forgerock.openidm.config.enhanced.JSONEnhancedConfig;
 import org.forgerock.openidm.core.IdentityServer;
 import org.forgerock.openidm.core.ServerConstants;
-import org.forgerock.openidm.objset.JsonResourceObjectSet;
-import org.forgerock.openidm.objset.ObjectSet;
-import org.forgerock.openidm.objset.ObjectSetContext;
-import org.forgerock.openidm.scope.ScopeFactory;
-import org.forgerock.openidm.script.Script;
-import org.forgerock.openidm.script.ScriptException;
-import org.forgerock.openidm.script.ScriptThrownException;
-import org.forgerock.openidm.script.Scripts;
-import org.forgerock.openidm.script.Utils;
+import org.forgerock.openidm.script.AbstractScriptedService;
 import org.forgerock.openidm.util.FileUtil;
+import org.osgi.framework.BundleContext;
 import org.osgi.framework.Constants;
-import org.osgi.framework.ServiceRegistration;
 import org.osgi.service.component.ComponentContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
  * A Policy Service for policy validation.
- *
+ * 
  * @author Chad Kienle
  */
 @Component(name = PolicyService.PID, policy = ConfigurationPolicy.REQUIRE,
         description = "OpenIDM Policy Service", immediate = true)
-@Service()
 @Properties({
-        @Property(name = Constants.SERVICE_VENDOR, value = ServerConstants.SERVER_VENDOR_NAME),
-        @Property(name = Constants.SERVICE_DESCRIPTION, value = "OpenIDM Policy Service"),
-        @Property(name = ServerConstants.ROUTER_PREFIX, value = "policy")})
-public class PolicyService implements JsonResource {
+    @Property(name = Constants.SERVICE_VENDOR, value = ServerConstants.SERVER_VENDOR_NAME),
+    @Property(name = Constants.SERVICE_DESCRIPTION, value = "OpenIDM Policy Service"),
+    @Property(name = ServerConstants.ROUTER_PREFIX, value = "/policy*") })
+public class PolicyService extends AbstractScriptedService {
 
     public static final String PID = "org.forgerock.openidm.policy";
 
+    /**
+     * Setup logging for the {@link PolicyService}.
+     */
     private static final Logger logger = LoggerFactory.getLogger(PolicyService.class);
 
-    @Reference(referenceInterface = ScopeFactory.class)
-    private ScopeFactory scopeFactory;
-
-    /** Internal object set router service. */
-    @Reference(
-        name = "ref_PolicyService_JsonResourceRouterService",
-        referenceInterface = JsonResource.class,
-        bind = "bindRouter",
-        unbind = "unbindRouter",
-        cardinality = ReferenceCardinality.MANDATORY_UNARY,
-        policy = ReferencePolicy.STATIC,
-        target = "(service.pid=org.forgerock.openidm.router)"
-    )
-    protected ObjectSet router;
-    protected void bindRouter(JsonResource router) {
-        this.router = new JsonResourceObjectSet(router);
-    }
-    protected void unbindRouter(JsonResource router) {
-        this.router = null;
-    }
+    private ComponentContext context;
     
-    private Script script = null;
-    private JsonValue parameters = null;
-    private ServiceRegistration service = null;
+    private JsonValue configuration;
+
+    public PolicyService() {
+        super(EnumSet.of(RequestType.ACTION, RequestType.READ));
+    }
+
+    public PolicyService(JsonValue configuration) {
+        super(EnumSet.of(RequestType.ACTION, RequestType.READ));
+        init(configuration);
+    }
 
     @Activate
-    protected void activate(ComponentContext context) throws Exception{
-        logger.debug("Activating service with configuration {}", context.getProperties());
-        try {
-            setConfig(context);
-        } catch (Exception ex) {
-            logger.warn("Configuration invalid, can not activate service.", ex);
-            throw ex;
-        }
+    protected void activate(ComponentContext context) {
+        this.context = context;
+
+        Dictionary properties = context.getProperties();
+        setProperties(properties);
+
+        configuration = getConfiguration(context);
+
+        activate(context.getBundleContext(), null, configuration);
+
         logger.info("OpenIDM Policy Service component is activated.");
     }
-    
-    
-    /** 
-     * Configuration modified handling
-     * Ensures the service stays registered
-     * even whilst configuration changes
+
+    /**
+     * Configuration modified handling Ensures the service stays registered even
+     * whilst configuration changes
      */
     @Modified
     void modified(ComponentContext context) throws Exception {
-        logger.debug("Reconfiguring service with configuration {}", context.getProperties());
-        try {
-            setConfig(context);
-        } catch (Exception ex) {
-            logger.warn("Configuration invalid, can not reconfigure service.", ex);
-            throw ex;
-        }
+        configuration = getConfiguration(context);
+        modified(null, configuration);
+        logger.info("OpenIDM Policy Service component is modified.");
     }
 
-    private void setConfig(ComponentContext context) {
-        JsonValue configuration = JSONEnhancedConfig.newInstance().getConfigurationAsJson(context);
+    @Deactivate
+    protected void deactivate(ComponentContext context) {
+        deactivate();
+        this.context = null;
+        logger.info("OpenIDM Policy Service component is deactivated.");
+    }
 
-        // Initiate the Script
-        script = Scripts.newInstance((String)context.getProperties().get(Constants.SERVICE_PID), configuration);
-        configuration.remove("type");
-        configuration.remove("source");
-        configuration.remove("file");
+    @Override
+    protected Object getRouterPrefixes(String factoryPid, JsonValue configuration) {
+        return null;
+    }
+
+    protected BundleContext getBundleContext() {
+        return context.getBundleContext();
+    }
+
+    private JsonValue getConfiguration(ComponentContext context) {
+        JsonValue configuration = JSONEnhancedConfig.newInstance().getConfigurationAsJson(context);
+        init(configuration);
+        return configuration;
+    }
+    
+    private void init(JsonValue configuration) {
         JsonValue additionalPolicies = configuration.get("additionalFiles");
         if (!additionalPolicies.isNull()) {
             configuration.remove("additionalFiles");
             List<String> list = new ArrayList<String>();
             for (JsonValue policy : additionalPolicies) {
-                String fileName = policy.asString();
                 try {
-                    list.add(FileUtil.readFile(IdentityServer.getFileForProjectPath(fileName)));
+                    list.add(FileUtil.readFile(IdentityServer.getFileForProjectPath(policy.asString())));
                 } catch (Exception e) {
-                    logger.error("Error loading additional policy script " + fileName, e);
+                    logger.error("Error loading additional policy script " + policy.asString(), e);
                 }
             }
             configuration.add("additionalPolicies", list);
         }
-        parameters = configuration;
-    }
-
-    @Deactivate
-    protected void deactivate(ComponentContext context) {
-        if (null != service) {
-            service.unregister();
-            service = null;
-        }
-        logger.info("OpenIDM Policy Service component is deactivated.");
-    }
-
-    public void registerResource(JsonValue resourceConfig) {
-        List<Object> resources = parameters.get("resources").asList();
-        String resourceName = resourceConfig.get("resource").asString();
-        for (Object obj : resources) {
-            JsonValue value = (JsonValue)obj;
-            if (value.get("resource").asString().equals(resourceName)) {
-                logger.debug("Removing old resource configuration for {}", resourceName);
-                resources.remove(obj);
-            }
-        }
-        logger.debug("Registering resource configuration for {}", resourceName);
-        resources.add(resourceConfig);
     }
     
-    public void unregisterResource(String resourceName) {
-        List<Object> resources = parameters.get("resources").asList();
-        for (Object obj : resources) {
-            JsonValue value = (JsonValue)obj;
-            if (value.get("resource").asString().equals(resourceName)) {
-                logger.debug("Unregistering resource configuration for {}", resourceName);
-                resources.remove(obj);
-                return;
+    @Override
+    public void handleAction(final ServerContext context, final ActionRequest request,
+            final Bindings handler) throws ResourceException {
+        super.handleAction(context, request, handler);
+        for (Map.Entry<String, String> entry : request.getAdditionalParameters().entrySet()) {
+            if (handler.containsKey(entry.getKey())) {
+                continue;
+            }
+            if (bindings != null) {
+                bindings.put(entry.getKey(), entry.getValue());
             }
         }
-        logger.debug("Cannot unregister resource configuration for {}. Resource configuration does not exist", resourceName);
+
+        handler.put("request", request);
+        handler.put("resources", configuration.get("resources").getObject());
     }
     
-    public JsonValue handle(JsonValue request) throws JsonResourceException {
-        Map<String, Object> scope = Utils.deepCopy(parameters.asMap());
-        JsonValue params = request.get("params");
-        JsonValue caller = params.get("_caller");
-        JsonValue parent = request.get("parent");
-        if (parent.get("_isDirectHttp").isNull()) {
-            boolean isHttp = false;
-            if (!caller.isNull() && caller.asString().equals("filterEnforcer")) {
-                parent = parent.get("parent");
-            }
-            if (!parent.isNull() && !parent.get("type").isNull()) {
-                isHttp = parent.get("type").asString().equals("http");
-            }
-            request.add("_isDirectHttp", isHttp);
-        } else {
-            request.add("_isDirectHttp", parent.get("_isDirectHttp").asBoolean());
-        }
-        ObjectSetContext.push(request);
-        try {
-            scope.putAll(scopeFactory.newInstance(ObjectSetContext.get()));
-            scope.put("request", request.getObject());
-            return new JsonValue(script.exec(scope));
-        } catch (ScriptThrownException ste) {
-            throw ste.toJsonResourceException(null);
-        } catch (ScriptException se) {
-            throw se.toJsonResourceException("Failure in executing policy script: " + se.getMessage());
-        } finally {
-            ObjectSetContext.pop();
-        }
+    @Override
+    public void handleRead(final ServerContext context, final ReadRequest request,
+            final Bindings handler) throws ResourceException {
+        super.handleRead(context, request, handler);
+
+        handler.put("request", request);
+        handler.put("resources", configuration.get("resources").getObject());
     }
 }
-

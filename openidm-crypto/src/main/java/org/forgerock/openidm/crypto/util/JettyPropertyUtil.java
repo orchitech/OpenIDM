@@ -21,6 +21,7 @@
  * your own identifying information:
  * "Portions Copyrighted [year] [name of copyright owner]"
  */
+
 package org.forgerock.openidm.crypto.util;
 
 import java.security.GeneralSecurityException;
@@ -35,13 +36,15 @@ import org.forgerock.openidm.crypto.impl.Main;
  * @author aegloff
  */
 public class JettyPropertyUtil {
-    
+
     /**
-     * Gets a Jetty configuration property. If obfuscated is true, it will return
-     * a value obfuscated in Jetty format.
-     * 
-     * @param propName  name of the property.
-     * @param obfuscated if value should be obfuscated.
+     * Gets a Jetty configuration property. If obfuscated is true, it will
+     * return a value obfuscated in Jetty format.
+     *
+     * @param propName
+     *            name of the property.
+     * @param obfuscated
+     *            if value should be obfuscated.
      * @return the property value.
      */
     public static String getProperty(String propName, boolean obfuscated) {
@@ -57,15 +60,17 @@ public class JettyPropertyUtil {
                 prop = clear;
             }
         } catch (GeneralSecurityException ex) {
-            throw new RuntimeException("Failed to obtain property " + propName + " in Jetty obfuscated format.", ex);
+            throw new RuntimeException("Failed to obtain property " + propName
+                    + " in Jetty obfuscated format.", ex);
         }
         return prop;
     }
 
     /**
      * Get a Jetty configuration property as qualified file path
-     * 
-     * @param propName  name of the property.
+     *
+     * @param propName
+     *            name of the property.
      * @return the property value.
      */
     public static String getPathProperty(String propName) {

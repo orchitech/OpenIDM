@@ -53,10 +53,10 @@ public class DB2TableHandler extends GenericTableHandler {
         result.put(QueryDefinition.PROPDELETEQUERYSTR, "DELETE FROM " + propertyTable + " WHERE " + mainTableName + "_id = (SELECT obj.id FROM " + mainTable + " obj, " + typeTable + " objtype WHERE obj.objecttypes_id = objtype.id AND objtype.objecttype = ? AND obj.objectid  = ?)");
         return result;
     }
-    
+
     public boolean isRetryable(SQLException ex, Connection connection) {
         // Re-tryable DB2 error codes
-        // -911 indicates DB2 rolled back already and expects a retry 
+        // -911 indicates DB2 rolled back already and expects a retry
         // -912 indicates deadlock or timeout.
         // -904 indicates resource limit was exceeded.
         if (-911 == ex.getErrorCode() || -912 == ex.getErrorCode() || -904 == ex.getErrorCode()) {

@@ -32,7 +32,7 @@
  */
 
 /*jslint regexp:false sub:true */
-/*global httpAccessConfig, allowedOrigins */
+/*global httpAccessConfig */
 
 
 //reinventing the wheel a bit, here; eventually move to underscore's isEqual method
@@ -131,10 +131,10 @@ function contains(a, o) {
 }
 
 function isMyTask() {
-    var taskInstanceId = request.id.split("/")[2],
+    var taskInstanceId = request.resourceName.split("/")[2],
         taskInstance = openidm.read("workflow/taskinstance/" + taskInstanceId);
     
-    return taskInstance.assignee === request.parent.security.username;
+    return taskInstance.assignee === context.security.authenticationId;
 }
 function join (arr, delim) {
     var returnStr = "",i=0;
@@ -148,7 +148,7 @@ function isUserCandidateForTask(taskInstanceId) {
     
     var userCandidateTasksQueryParams = {
             "_queryId": "filtered-query",
-            "taskCandidateUser": request.parent.security.username
+            "taskCandidateUser": context.security.authenticationId
         },
         userCandidateTasks = openidm.query("workflow/taskinstance", userCandidateTasksQueryParams).result,
         userGroupCandidateTasksQueryParams,
@@ -162,8 +162,8 @@ function isUserCandidateForTask(taskInstanceId) {
     }
         
     roles = "";
-    for (i = 0; i < request.parent.security['openidm-roles'].length; i++) {
-        role = request.parent.security['openidm-roles'][i];
+    for (i = 0; i < context.security.authorizationId.roles.length; i++) {
+        role = context.security.authorizationId.roles[i];
         if (i === 0) {
             roles = role;
         } else {
@@ -186,43 +186,44 @@ function isUserCandidateForTask(taskInstanceId) {
 }
 
 function canUpdateTask() {
-    var taskInstanceId = request.id.split("/")[2];
+    var taskInstanceId = request.resourceName.split("/")[2];
     return isMyTask() || isUserCandidateForTask(taskInstanceId);
 }
 
 function isProcessOnUsersList(processDefinitionId) {
     var processesForUserQueryParams = {
             "_queryId": "query-processes-for-user",
-            "userId": request.parent.security.userid.id
+            "userId": context.security.authorizationId.id
         },
         processesForUser = openidm.query("endpoint/getprocessesforuser", processesForUserQueryParams),
         isProcessOneOfUserProcesses = false,
         processForUser,
         i;
     
-    for (i = 0; i < processesForUser.length; i++) {
-        processForUser = processesForUser[i];
+    for (i = 0; i < processesForUser.result.length; i++) {
+        processForUser = processesForUser.result[i];
         if (processDefinitionId === processForUser._id) {
             isProcessOneOfUserProcesses = true;
         }
     }
+
     return isProcessOneOfUserProcesses;
 }
 
 function isAllowedToStartProcess() {
-    var processDefinitionId = request.value._processDefinitionId;
+    var processDefinitionId = request.content._processDefinitionId;
     return isProcessOnUsersList(processDefinitionId);
 }
 
 function isOneOfMyWorkflows() {
-    var processDefinitionId = request.id.split("/")[2];
+    var processDefinitionId = request.resourceName.split("/")[2];
     return isProcessOnUsersList(processDefinitionId);
 }
 
 function isQueryOneOf(allowedQueries) {
     if (
-            allowedQueries[request.id] &&
-            contains(allowedQueries[request.id], request.params._queryId)
+            allowedQueries[request.resourceName] &&
+            contains(allowedQueries[request.resourceName], request.queryId)
        )
     {
         return true;
@@ -238,52 +239,23 @@ function checkIfUIIsEnabled(param) {
 }
 
 function ownDataOnly() {
-    var userId = "";
-    
-    userId = request.id.match(/managed\/user\/(.*)/i);
-    if (userId && userId.length === 2)
-    {
-        userId = userId[1];
-    }
-    
-    if (request.params && request.params.userId)
-    {   
-        // something funny going on if we have two different values for userId
-        if (userId !== null && userId.length && userId !== request.params.userId) {
-            return false;
-        } 
-        userId = request.params.userId;
-    }
-    
-    if (request.value && request.value.userId)
-    {
-        // something funny going on if we have two different values for userId
-        if (userId !== null  && userId.length && userId !== request.params.userId) {
-            return false;
-        } 
-        userId = request.value.userId;
-    }
-    
-    return userId === request.parent.security.userid.id;
+    var userId = context.security.authorizationId.id,
+        component = context.security.authorizationId.component;
+
+    // in the case of a literal read on themselves
+    return (request.resourceName === component + "/" + userId);
 
 }
 
 function managedUserRestrictedToAllowedProperties(allowedPropertiesList) {
-    var i = 0,requestedRoles = [],params = {},currentUser = {},
+    var i = 0,requestedRoles = [],params = {},currentUser = {}, operations,
         getTopLevelProp = function (prop) {
             // removes a leading slash and only returns the first part of a string before a possible subsequent slash
             return prop.replace(/^\//, '').match(/^[^\/]+/)[0];
         };
     
-    if (!request.id.match(/^managed\/user/)) {
+    if (!request.resourceName.match(/^managed\/user/)) {
         return true;
-    }
-
-    if (request.value) {
-        params = request.value;
-    }
-    else { // this would be strange, but worth checking
-        return true; // true because they don't appear to be setting anything
     }
     
     // we could accept a csv list or an array of properties for the allowedPropertiesList arg.
@@ -291,29 +263,40 @@ function managedUserRestrictedToAllowedProperties(allowedPropertiesList) {
         allowedPropertiesList = allowedPropertiesList.split(',');
     }
     
-    if (request.method === "patch" || (request.method === "action" && request.params._action === "patch")) {
+    if (request.method === "patch" || (request.method === "action" && request.action === "patch")) {
+    	if (request.method === "action") {
+    		operations = request.content;
+    	} else if (!request.patchOperations) {
+            return true;
+        } else {
+        	operations = request.patchOperations
+        }
         // check each of the fields they are attempting to patch and make sure they are approved
-        for (i in params) {
-            if ((params[i].test && !containsIgnoreCase(allowedPropertiesList, getTopLevelProp(params[i].test))) ||
-                (params[i].add && !containsIgnoreCase(allowedPropertiesList, getTopLevelProp(params[i].add))) || 
-                (params[i].replace && !containsIgnoreCase(allowedPropertiesList, getTopLevelProp(params[i].replace)))) {
+        for (i in operations) {
+            if ((operations[i].field && !containsIgnoreCase(allowedPropertiesList, getTopLevelProp(operations[i].field)))) {
                 return false;
             }
         }
     } else if (request.method === "update") {
-        currentUser = openidm.read(request.id);
+        if (!request.content) {
+            return true;
+        }
+        currentUser = openidm.read(request.resourceName);
         if (!currentUser) { // this would be odd, but just in case
             return false;
         }
-        for (i in params) {
+        for (i in request.content) {
             // if the new value does not match the current value, then they must be updating it
             // if the field they are attempting to update isn't allowed for them, then reject request.
-            if (!deepCompare(currentUser[i],params[i]) && !containsIgnoreCase(allowedPropertiesList,i)) {
+            if (!deepCompare(currentUser[i], request.content[i]) && !containsIgnoreCase(allowedPropertiesList,i)) {
                 return false;
             }
         }
     } else if (request.method === "create") {
-        for (i in params) {
+        if (!request.content) {
+            return true;
+        }
+        for (i in request.content) {
             // they should only be providing parameters that they are allowed to define
             if (!containsIgnoreCase(allowedPropertiesList,i)) {
                 return false;
@@ -325,10 +308,7 @@ function managedUserRestrictedToAllowedProperties(allowedPropertiesList) {
 }
 
 function disallowQueryExpression() {
-    if (request.params && typeof request.params._queryExpression !== "undefined") {
-        return false;
-    }
-    return true;
+    return  !request.queryExpression;
 }
 
 //////// Do not alter functions below here as part of your authz configuration
@@ -357,7 +337,7 @@ function passesAccessConfig(id, roles, method, action) {
                 // Check roles
                 if (containsItems(roles, config.roles.split(','))) {
                     // Check method
-                    if (method === 'undefined' || containsItem(method, config.methods)) {
+                    if (typeof method === 'undefined' || containsItem(method, config.methods)) {
                         // Check action
                         if (action === 'undefined' || action === "" || containsItem(action, config.actions)) {
                             if (typeof(config.customAuthz) !== 'undefined' && config.customAuthz !== null) {
@@ -376,25 +356,26 @@ function passesAccessConfig(id, roles, method, action) {
     return false;
 }
 
+function isAJAXRequest() {
+    var headers = context.http.headers;
 
-function passesOriginVerification() {
-    var headers = request.parent.headers,
-        origin = headers["Origin"] || headers["origin"];
+    // one of these custom headers must be present for all HTTP-based requests, to prevent CSRF attacks
 
+    // X-Requested-With is common from AJAX libraries such as jQuery
     if (typeof (headers["X-Requested-With"]) !== "undefined" || 
         typeof (headers["x-requested-with"]) !== "undefined" || 
+
+        // Basic auth headers are acceptible for convenience from cURL commands; 
+        // We don't return the request header to prompt the browser to provide basic auth headers, 
+        // so it will only be present if someone explicitly provides them, as in a cURL request.
         typeof (headers["Authorization"]) !== "undefined" || 
         typeof (headers["authorization"]) !== "undefined" || 
+
+        // The custom authn headers for OpenIDM
         typeof (headers["X-OpenIDM-Username"]) !== "undefined" || 
         typeof (headers["x-openidm-username"]) !== "undefined") {
-        
-        // CORS requests will have the Origin header included; verify that the origin given is allowed.
-        if (typeof (origin) !== "undefined" && typeof allowedOrigins !== "undefined" &&
-                !contains(allowedOrigins, origin) ) {
-            return false;
-        } else {
-            return true;
-        }
+
+        return true;
     }
     return false;
 }
@@ -403,24 +384,26 @@ function allow() {
     var roles,
         action;
     
-    if (request.parent === null || request.parent === undefined || request.parent.type !== 'http') {
+    if (!context.caller.external) {
         return true;
     }
     
-    roles = request.parent.security['openidm-roles'];
+    roles = context.security.authorizationId.roles;
     action = "";
-    if (request.params && request.params._action) {
-        action = request.params._action;
+    if (request.action) {
+        action = request.action;
     }
     
     // Check REST requests against the access configuration
-    if (request.parent.type === 'http') {
-        if (!passesOriginVerification()) {
+    if (context.caller.external) {
+        if (!isAJAXRequest()) {
             return false;
         }
         
-        logger.debug("Access Check for HTTP request for resource id: " + request.id);
-        if (passesAccessConfig(request.id, roles, request.method, action)) {
+        logger.debug("Access Check for HTTP request for resource id: " + request.resourceName);
+
+        if (passesAccessConfig(request.resourceName, roles, request.method, action)) {
+
             logger.debug("Request allowed");
             return true;
         }
@@ -428,12 +411,12 @@ function allow() {
 }
 
 // Load the access configuration script (httpAccessConfig obj)
-load.call(this, identityServer.getProjectLocation() + "/script/access.js");
+load(identityServer.getProjectLocation() + "/script/access.js");
 
 if (!allow()) {
-//    java.lang.System.out.println(request);
+//    console.log(request);
     throw { 
-        "openidmCode" : 403, 
+        "code" : 403,
         "message" : "Access denied"
     };
 }

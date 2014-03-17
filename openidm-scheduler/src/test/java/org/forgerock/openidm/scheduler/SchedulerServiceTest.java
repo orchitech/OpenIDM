@@ -24,12 +24,12 @@ import java.util.Hashtable;
 import java.util.List;
 import java.util.Map;
 
-import static org.fest.assertions.Assertions.assertThat;
+import static org.fest.assertions.api.Assertions.assertThat;
 
 import org.forgerock.json.fluent.JsonValue;
-import org.forgerock.openidm.config.EnhancedConfig;
-import org.forgerock.openidm.config.JSONEnhancedConfig;
-import org.forgerock.openidm.config.InvalidException;
+import org.forgerock.openidm.config.enhanced.EnhancedConfig;
+import org.forgerock.openidm.config.enhanced.InvalidException;
+import org.forgerock.openidm.config.enhanced.JSONEnhancedConfig;
 
 import static org.mockito.Mockito.*;
 
@@ -44,7 +44,7 @@ import org.testng.annotations.Test;
 
 /**
  * Basic unit tests, the main functionality is covered by functional tests
- * 
+ *
  * @author aegloff
  */
 public class SchedulerServiceTest {
@@ -62,19 +62,19 @@ public class SchedulerServiceTest {
 
         ComponentContext mockedContext = mock(ComponentContext.class);
         BundleContext mockedBundleContext = mock(BundleContext.class);
-        
+
         Dictionary compContextProperties = new Hashtable();
-    
-        EnhancedConfig mockedEnhancedConfig = mock(EnhancedConfig.class); 
+
+        EnhancedConfig mockedEnhancedConfig = mock(EnhancedConfig.class);
         when(mockedEnhancedConfig.getConfiguration(mockedContext)).thenReturn(enhancedConfig);
         sched.enhancedConfig = mockedEnhancedConfig;
-        
+
         when(mockedContext.getProperties()).thenReturn(compContextProperties);
         when(mockedContext.getBundleContext()).thenReturn(mockedBundleContext);
 
         return mockedContext;
     }
-    
+
     @Test
     public void configParsingTest() throws InvalidException {
         // Check valid configuration succeeds
@@ -86,14 +86,14 @@ public class SchedulerServiceTest {
         config.put(SchedulerService.SCHEDULE_TIME_ZONE, "America/Los_Angeles");
         config.put(SchedulerService.SCHEDULE_INVOKE_SERVICE, "active-sync");
         config.put(SchedulerService.SCHEDULE_INVOKE_CONTEXT, "system-x");
-        
+
         //schedulerService.initConfig(validConfig);
         ScheduleConfig scheduleConfig = new ScheduleConfig(new JsonValue(config));
-        
+
         // mimimize trying to these impl details, basic sanity check on one
-        assertNotNull(scheduleConfig.getStartTime()); 
+        assertNotNull(scheduleConfig.getStartTime());
     }
-    
+
     @Test(enabled = false, expectedExceptions = InvalidException.class)
     public void invalidConfigParsingTest() throws InvalidException {
         // Check invalid configuration fails
@@ -105,8 +105,8 @@ public class SchedulerServiceTest {
         config.put(SchedulerService.SCHEDULE_TIME_ZONE, "America/Los_Angeles");
         // test missing config.put(SchedulerService.SCHEDULE_INVOKE_SERVICE, "active-sync");
         config.put(SchedulerService.SCHEDULE_INVOKE_CONTEXT, "system-x");
-        
+
         ScheduleConfig scheduleConfig = new ScheduleConfig(new JsonValue(config));
-        
+
     }
 }

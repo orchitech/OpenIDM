@@ -1,7 +1,7 @@
 /*
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS HEADER.
  *
- * Copyright © 2011 ForgeRock AS. All rights reserved.
+ * Copyright (c) 2011-2013 ForgeRock AS. All rights reserved.
  *
  * The contents of this file are subject to the terms
  * of the Common Development and Distribution License
@@ -24,18 +24,14 @@
 package org.forgerock.openidm.repo.orientdb.metadata;
 
 import java.util.ArrayList;
-import java.util.HashMap;
+import java.util.Collections;
 import java.util.List;
-import java.util.Map;
 
 import org.forgerock.json.fluent.JsonValue;
 import org.forgerock.json.fluent.JsonPointer;
 import org.forgerock.openidm.metadata.MetaDataProvider;
 import org.forgerock.openidm.metadata.MetaDataProviderCallback;
 import org.forgerock.openidm.repo.orientdb.impl.OrientDBRepoService;
-
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 /**
  * Meta data provider to describe configuration
@@ -45,33 +41,31 @@ import org.slf4j.LoggerFactory;
  * @author ckienle
  */
 public class ConfigMeta implements MetaDataProvider {
-    final static Logger logger = LoggerFactory.getLogger(ConfigMeta.class);
 
-    Map<String, List<JsonPointer>> propertiesToEncrypt;
-    private MetaDataProviderCallback callback = null;
+    private final List<JsonPointer> propertiesToEncrypt;
 
     public ConfigMeta() {
-        propertiesToEncrypt = new HashMap<String, List<JsonPointer>>();
-        List props = new ArrayList<JsonPointer>();
-        props.add(new JsonPointer("password"));
-        propertiesToEncrypt.put(OrientDBRepoService.PID, props);
+        List<JsonPointer> props = new ArrayList<JsonPointer>();
+        props.add(new JsonPointer(OrientDBRepoService.CONFIG_PASSWORD));
+        props.add(new JsonPointer("/embeddedServer/users/*/password"));
+        propertiesToEncrypt = Collections.unmodifiableList(props);
     }
 
     /**
      * @inheritDoc
      */
-    public List<JsonPointer> getPropertiesToEncrypt(String pidOrFactory, String instanceAlias, JsonValue config) {
-        if (propertiesToEncrypt.containsKey(pidOrFactory)) {
-            return propertiesToEncrypt.get(pidOrFactory);
+    public List<JsonPointer> getPropertiesToEncrypt(String pidOrFactory, String instanceAlias,
+            JsonValue config) {
+        if (OrientDBRepoService.PID.equals(pidOrFactory)) {
+            return propertiesToEncrypt;
         }
         return null;
-    } 
+    }
 
     /**
      * @inheritDoc
      */
     @Override
     public void setCallback(MetaDataProviderCallback callback) {
-        this.callback = callback;
     }
 }

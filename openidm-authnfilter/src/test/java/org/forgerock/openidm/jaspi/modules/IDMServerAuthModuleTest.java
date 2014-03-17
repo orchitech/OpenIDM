@@ -11,12 +11,15 @@
  * Header, with the fields enclosed by brackets [] replaced by your own identifying
  * information: "Portions copyright [year] [name of copyright owner]".
  *
- * Copyright 2013 ForgeRock Inc.
+ * Copyright 2013-2014 ForgeRock AS.
  */
 
 package org.forgerock.openidm.jaspi.modules;
 
+import org.forgerock.jaspi.runtime.JaspiRuntime;
 import org.forgerock.json.fluent.JsonValue;
+import org.forgerock.json.resource.SecurityContext;
+import org.forgerock.json.resource.servlet.SecurityContextFactory;
 import org.testng.annotations.BeforeClass;
 import org.testng.annotations.Test;
 
@@ -29,13 +32,14 @@ import javax.security.auth.message.MessagePolicy;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
 import static org.mockito.BDDMockito.given;
+import static org.mockito.BDDMockito.spy;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.verifyZeroInteractions;
 import static org.testng.Assert.assertEquals;
 
 /**
@@ -50,8 +54,7 @@ public class IDMServerAuthModuleTest {
         roles = new ArrayList<String>();
     }
 
-    private IDMServerAuthModule getIDMServerAuthModule(final AuthStatus validateRequestAuthStatus,
-            final AuthData returnAuthData) {
+    private IDMServerAuthModule getIDMServerAuthModule() {
         return new IDMServerAuthModule() {
             @Override
             protected void initialize(MessagePolicy requestPolicy, MessagePolicy responsePolicy,
@@ -60,14 +63,12 @@ public class IDMServerAuthModuleTest {
 
             @Override
             protected AuthStatus validateRequest(MessageInfo messageInfo, Subject clientSubject, Subject serviceSubject,
-                    AuthData authData) throws AuthException {
-                if (returnAuthData != null) {
-                    authData.setUserId(returnAuthData.getUserId());
-                    authData.setUsername(returnAuthData.getUsername());
-                    authData.setRoles(returnAuthData.getRoles());
-                    authData.setResource(returnAuthData.getResource());
-                }
-                return validateRequestAuthStatus;
+                    SecurityContextMapper securityContextWrapper) throws AuthException {
+                securityContextWrapper.setUserId("USER_ID");
+                securityContextWrapper.setUsername("USERNAME");
+                securityContextWrapper.setRoles(roles);
+                securityContextWrapper.setResource("RESOURCE");
+                return AuthStatus.SEND_CONTINUE;
             }
 
             @Override
@@ -80,7 +81,7 @@ public class IDMServerAuthModuleTest {
     public void shouldGetSupportedMessageTypes() {
 
         //Given
-        IDMServerAuthModule idmServerAuthModule = getIDMServerAuthModule(null, null);
+        IDMServerAuthModule idmServerAuthModule = getIDMServerAuthModule();
 
         //When
         Class[] supportedMessageTypes = idmServerAuthModule.getSupportedMessageTypes();
@@ -95,15 +96,10 @@ public class IDMServerAuthModuleTest {
     public void shouldValidateRequestWhenSuccessful() throws AuthException {
 
         //Given
-        AuthData authData = new AuthData();
-        authData.setUserId("USER_ID");
-        authData.setUsername("USERNAME");
-        authData.setRoles(roles);
-        authData.setResource("RESOURCE");
-        IDMServerAuthModule idmServerAuthModule = getIDMServerAuthModule(AuthStatus.SUCCESS, authData);
+        IDMServerAuthModule idmServerAuthModule = getIDMServerAuthModule();
         MessageInfo messageInfo = mock(MessageInfo.class);
-        Map<String, Object> messageInfoMap = mock(Map.class);
-        Map<String, Object> contextMap = mock(Map.class);
+        Map<String, Object> messageInfoMap = spy(new HashMap<String, Object>());
+        Map<String, Object> contextMap = spy(new HashMap<String, Object>());
         Subject clientSubject = new Subject();
         Subject serviceSubject = new Subject();
 
@@ -111,53 +107,17 @@ public class IDMServerAuthModuleTest {
 
         given(messageInfo.getRequestMessage()).willReturn(request);
         given(messageInfo.getMap()).willReturn(messageInfoMap);
-        given(messageInfoMap.get("org.forgerock.security.context")).willReturn(contextMap);
+        given(messageInfoMap.get(JaspiRuntime.ATTRIBUTE_AUTH_CONTEXT)).willReturn(contextMap);
 
         //When
         AuthStatus authStatus = idmServerAuthModule.validateRequest(messageInfo, clientSubject, serviceSubject);
 
         //Then
-        verify(messageInfo).getMap();
+        verify(contextMap).put(SecurityContext.AUTHZID_ID, "USER_ID");
+        verify(contextMap).put(SecurityContext.AUTHZID_ROLES, roles);
+        verify(contextMap).put(SecurityContext.AUTHZID_COMPONENT, "RESOURCE");
+        verify(messageInfoMap).put(SecurityContextFactory.ATTRIBUTE_AUTHCID, "USERNAME");
 
-        verify(request).setAttribute("openidm.userid", "USER_ID");
-        verify(request).setAttribute("openidm.username", "USERNAME");
-        verify(request).setAttribute("openidm.roles", roles);
-        verify(request).setAttribute("openidm.resource", "RESOURCE");
-        verify(request).setAttribute("openidm.authinvoked", "authnfilter");
-
-        verify(contextMap).put("openidm.userid", "USER_ID");
-        verify(contextMap).put("openidm.username", "USERNAME");
-        verify(contextMap).put("openidm.roles", roles);
-        verify(contextMap).put("openidm.resource", "RESOURCE");
-        verify(contextMap).put("openidm.authinvoked", "authnfilter");
-        verify(contextMap).put("openidm.auth.status", true);
-
-        assertEquals(authStatus, AuthStatus.SUCCESS);
-    }
-
-    @Test
-    public void shouldValidateRequestWhenNotSuccessful() throws AuthException {
-
-        //Given
-        IDMServerAuthModule idmServerAuthModule = getIDMServerAuthModule(AuthStatus.SEND_FAILURE, null);
-        MessageInfo messageInfo = mock(MessageInfo.class);
-        Map<String, Object> messageInfoMap = mock(Map.class);
-        Map<String, Object> contextMap = mock(Map.class);
-        Subject clientSubject = new Subject();
-        Subject serviceSubject = new Subject();
-
-        HttpServletRequest request = mock(HttpServletRequest.class);
-
-        given(messageInfo.getRequestMessage()).willReturn(request);
-        given(messageInfo.getMap()).willReturn(messageInfoMap);
-        given(messageInfoMap.get("org.forgerock.security.context")).willReturn(contextMap);
-
-        //When
-        AuthStatus authStatus = idmServerAuthModule.validateRequest(messageInfo, clientSubject, serviceSubject);
-
-        //Then
-        verifyZeroInteractions(request);
-        verify(contextMap).put("openidm.auth.status", false);
-        assertEquals(authStatus, AuthStatus.SEND_FAILURE);
+        assertEquals(authStatus, AuthStatus.SEND_CONTINUE);
     }
 }

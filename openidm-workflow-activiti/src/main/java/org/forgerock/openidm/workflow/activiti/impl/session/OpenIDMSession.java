@@ -24,7 +24,8 @@
 package org.forgerock.openidm.workflow.activiti.impl.session;
 
 import org.activiti.engine.impl.interceptor.Session;
-import org.forgerock.openidm.objset.ObjectSet;
+import org.forgerock.json.resource.PersistenceConfig;
+import org.forgerock.script.ScriptRegistry;
 
 /**
  * Custom Session interface providing access to OpenIDM functions from Activiti
@@ -33,7 +34,9 @@ import org.forgerock.openidm.objset.ObjectSet;
  */
 public interface OpenIDMSession extends Session {
 
-    ObjectSet getOpenIDM();
+    PersistenceConfig getOpenIDMPersistenceConfig();
+    void setOpenIDMPersistenceConfig(PersistenceConfig persistenceConfig);
     
-    void setOpenIDM(ObjectSet router);
+    ScriptRegistry getOpenIDMScriptRegistry();
+    void setOpenIDMScriptRegistry(ScriptRegistry scriptRegistry);
 }

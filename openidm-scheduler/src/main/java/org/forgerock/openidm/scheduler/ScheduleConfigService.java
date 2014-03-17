@@ -34,9 +34,10 @@ import org.apache.felix.scr.annotations.ConfigurationPolicy;
 import org.apache.felix.scr.annotations.Deactivate;
 import org.apache.felix.scr.annotations.Reference;
 import org.forgerock.json.fluent.JsonValue;
-import org.forgerock.openidm.config.EnhancedConfig;
-import org.forgerock.openidm.config.InvalidException;
-import org.forgerock.openidm.config.JSONEnhancedConfig;
+import org.forgerock.openidm.cluster.ClusterManagementService;
+import org.forgerock.openidm.config.enhanced.EnhancedConfig;
+import org.forgerock.openidm.config.enhanced.InvalidException;
+import org.forgerock.openidm.config.enhanced.JSONEnhancedConfig;
 import org.osgi.framework.Constants;
 import org.osgi.service.component.ComponentContext;
 import org.quartz.SchedulerException;
@@ -45,7 +46,7 @@ import org.slf4j.LoggerFactory;
 
 /**
  * Schedule Config Service
- * 
+ *
  * @author ckienle
  */
 
@@ -53,53 +54,60 @@ import org.slf4j.LoggerFactory;
 public class ScheduleConfigService {
 
     final static Logger logger = LoggerFactory.getLogger(ScheduleConfigService.class);
-    
+
     // Optional user defined name for this instance, derived from the file install name
     String configFactoryPID;
-    
+
     // Scheduling
     private Boolean schedulePersisted = false;
     private String jobName = null;
     private ScheduleConfig scheduleConfig;
-    
+
     EnhancedConfig enhancedConfig = JSONEnhancedConfig.newInstance();
-    
+
     @Reference
     SchedulerService schedulerService;
-    
+    protected void bindSchedulerService(final SchedulerService service) {
+        schedulerService = service;
+    }
+
+    protected void unbindSchedulerService(final SchedulerService service) {
+        schedulerService = null;
+    }
+
     @Activate
-    void activate(ComponentContext compContext) throws SchedulerException, ParseException { 
+    void activate(ComponentContext compContext) throws SchedulerException, ParseException {
         logger.debug("Activating Service with configuration {}", compContext.getProperties());
-        
+
         scheduleConfig = initConfig(compContext);
         if (scheduleConfig == null) {
             logger.debug("No preconfigured schedule");
             return;
         }
-        
+
         if (configFactoryPID != null) {
             jobName = configFactoryPID;
         } else {
             jobName = (String) compContext.getProperties().get(Constants.SERVICE_PID);
         }
-        
+
         schedulerService.registerConfigService(this);
-        
+
     }
-    
+
     @Deactivate
     void deactivate(ComponentContext compContext) {
         logger.debug("Deactivating Service {}", compContext);
         schedulerService.unregisterConfigService(this);
     }
-    
+
     /**
      * Initialize the service configuration
      * @param compContext
      * @throws InvalidException if the configuration is invalid.
      */
     private ScheduleConfig initConfig(ComponentContext compContext) throws InvalidException {
-        
+
         // Optional property SERVICE_FACTORY_PID set by JSONConfigInstaller
         configFactoryPID = (String) compContext.getProperties().get("config.factory-pid");
         Map<String, Object> config = enhancedConfig.getConfiguration(compContext);

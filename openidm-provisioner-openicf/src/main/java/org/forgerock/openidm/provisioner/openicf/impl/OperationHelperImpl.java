@@ -28,21 +28,17 @@ package org.forgerock.openidm.provisioner.openicf.impl;
 
 import org.forgerock.json.crypto.JsonCryptoException;
 import org.forgerock.json.fluent.JsonValue;
-import org.forgerock.json.resource.JsonResourceException;
-import org.forgerock.openidm.core.ServerConstants;
+import org.forgerock.json.resource.ForbiddenException;
+import org.forgerock.json.resource.Resource;
+import org.forgerock.json.resource.ResourceException;
 import org.forgerock.openidm.crypto.CryptoService;
 import org.forgerock.openidm.provisioner.Id;
 import org.forgerock.openidm.provisioner.openicf.OperationHelper;
 import org.forgerock.openidm.provisioner.openicf.commons.ObjectClassInfoHelper;
 import org.forgerock.openidm.provisioner.openicf.commons.OperationOptionInfoHelper;
-import org.forgerock.openidm.provisioner.openicf.query.OperatorFactory;
-import org.forgerock.openidm.provisioner.openicf.query.operators.BooleanOperator;
-import org.forgerock.openidm.provisioner.openicf.query.operators.Operator;
 import org.identityconnectors.common.Assertions;
-import org.identityconnectors.common.Pair;
 import org.identityconnectors.framework.api.operations.APIOperation;
 import org.identityconnectors.framework.common.objects.*;
-import org.identityconnectors.framework.common.objects.filter.Filter;
 
 import java.io.IOException;
 import java.lang.reflect.UndeclaredThrowableException;
@@ -50,9 +46,7 @@ import java.net.URI;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 
-import static org.forgerock.openidm.provisioner.openicf.query.QueryUtil.*;
 
 /**
  * @author $author$
@@ -82,27 +76,26 @@ public class OperationHelperImpl implements OperationHelper {
         this.cryptoService = cryptoService;
     }
 
-
-
-
-    public boolean isOperationPermitted(Class<? extends APIOperation> operation) throws JsonResourceException {
+    public boolean isOperationPermitted(Class<? extends APIOperation> operation) throws ResourceException {
         OperationOptionInfoHelper operationOptionInfoHelper = operations.get(operation);
         String reason = "not supported.";
-        if (null != operationOptionInfoHelper && (null == operationOptionInfoHelper.getSupportedObjectTypes() ||
-                operationOptionInfoHelper.getSupportedObjectTypes().contains(objectClassInfoHelper.getObjectClass().getObjectClassValue()))) {
+        if (null != operationOptionInfoHelper
+                && (null == operationOptionInfoHelper.getSupportedObjectTypes()
+                    || operationOptionInfoHelper.getSupportedObjectTypes().contains(
+                        objectClassInfoHelper.getObjectClass().getObjectClassValue()))) {
 
             if (!operationOptionInfoHelper.isDenied()) {
                 return true;
-            } else if (OperationOptionInfoHelper.OnDenyAction.DO_NOTHING.equals(operationOptionInfoHelper.getOnDeny())) {
+            } else if (OperationOptionInfoHelper.OnActionPolicy.ALLOW.equals(operationOptionInfoHelper.getOnActionPolicy())) {
                 return false;
             }
             reason = "denied.";
         }
-        throw new JsonResourceException(403, "Operation " + operation.getCanonicalName() + " is " + reason);
+        throw new ForbiddenException("Operation " + operation.getCanonicalName() + " is " + reason);
     }
 
 
-    public OperationOptionsBuilder getOperationOptionsBuilder(Class<? extends APIOperation> operation, JsonValue source) throws Exception {
+    public OperationOptionsBuilder getOperationOptionsBuilder(Class<? extends APIOperation> operation, ConnectorObject connectorObject, JsonValue source) throws Exception {
         return operations.get(operation).build(source, objectClassInfoHelper);
     }
 
@@ -112,31 +105,38 @@ public class OperationHelperImpl implements OperationHelper {
     }
 
 
+/*
     public Filter build(Map<String, Object> query, Map<String, Object> params) throws Exception {
         Operator operator = createOperator(query, params);
         return operator.createFilter();
     }
-
-
-    public Pair<ObjectClass, Set<Attribute>> build(Class<? extends APIOperation> operation, JsonValue source) throws Exception {
-        return objectClassInfoHelper.build(operation, source, cryptoService);
+*/
+    public ConnectorObject build(Class<? extends APIOperation> operation, JsonValue source) throws Exception {
+        return objectClassInfoHelper.build(operation, null, source, cryptoService);
     }
+
+/*
+    public ConnectorObject build(Class<? extends APIOperation> operation, String id, JsonValue source) throws Exception {
+        //TODO do something with ID
+        return objectClassInfoHelper.build(operation, id, source, cryptoService);
+    }
+    */
 
 
     public JsonValue build(ConnectorObject source) throws Exception {
-        JsonValue result = objectClassInfoHelper.build(source, cryptoService);
+        JsonValue result = objectClassInfoHelper.build(source, cryptoService).getContent();
         resetUid(source.getUid(), result);
         if (null != source.getUid().getRevision()) {
             //System supports Revision
-            result.put(ServerConstants.OBJECT_PROPERTY_REV, source.getUid().getRevision());
+            result.put(Resource.FIELD_CONTENT_REVISION, source.getUid().getRevision());
         }
         return result;
     }
 
-
     public void resetUid(Uid uid, JsonValue target) {
         if (null != uid && null != target) {
-            target.put(ServerConstants.OBJECT_PROPERTY_ID, Id.escapeUid(uid.getUidValue()));
+            // TODO are we going to encode ids?
+            target.put(Resource.FIELD_CONTENT_ID, /*Id.escapeUid(*/uid.getUidValue()/*)*/);
         }
     }
 
@@ -152,7 +152,7 @@ public class OperationHelperImpl implements OperationHelper {
         if (null != uid) {
             try {
                 return systemObjectSetId.resolveLocalId(uid.getUidValue()).getQualifiedId();
-            } catch (JsonResourceException e) {
+            } catch (ResourceException e) {
                 // Should never happen in a copy constructor.
                 throw new UndeclaredThrowableException(e);
             }
@@ -161,7 +161,7 @@ public class OperationHelperImpl implements OperationHelper {
         }
     }
 
-
+/*
     public ResultsHandler getResultsHandler() {
         resultList.clear();
         return new ConnectorObjectResultsHandler();
@@ -171,9 +171,9 @@ public class OperationHelperImpl implements OperationHelper {
     public List<Map<String, Object>> getQueryResult() {
         return resultList;
     }
+*/
 
-
-    private class ConnectorObjectResultsHandler implements ResultsHandler {
+ //   private class ConnectorObjectResultsHandler implements ResultsHandler {
         /**
          * Call-back method to do whatever it is the caller wants to do with
          * each {@link org.identityconnectors.framework.common.objects.ConnectorObject} that is returned in the result of
@@ -185,6 +185,7 @@ public class OperationHelperImpl implements OperationHelper {
          *                          that wraps any native exception (or that describes any other problem
          *                          during execution) that is serious enough to stop the iteration.
          */
+/*
         public boolean handle(ConnectorObject obj) {
             try {
                 return resultList.add(objectClassInfoHelper.build(obj, cryptoService).asMap());
@@ -196,7 +197,8 @@ public class OperationHelperImpl implements OperationHelper {
             }
         }
     }
-
+*/
+/*
     private Operator createOperator(Map<String, Object> node, final Map<String, Object> params) throws Exception {
 
         String nodeName = getKey(node);
@@ -256,4 +258,5 @@ public class OperationHelperImpl implements OperationHelper {
     private String getKey(Map<String, Object> node) {
         return node.keySet().isEmpty() ? null : node.keySet().iterator().next();
     }
+*/
 }

@@ -1,5 +1,5 @@
 /*
- * Copyright 2013 ForgeRock, AS.
+ * Copyright 2013-2014 ForgeRock, AS.
  *
  * The contents of this file are subject to the terms of the Common Development and
  * Distribution License (the License). You may not use this file except in compliance with the
@@ -18,15 +18,16 @@ package org.forgerock.openidm.provisioner.openicf.syncfailure;
 import org.apache.felix.scr.annotations.Component;
 import org.apache.felix.scr.annotations.ConfigurationPolicy;
 import org.apache.felix.scr.annotations.Reference;
-import org.apache.felix.scr.annotations.ReferenceCardinality;
 import org.apache.felix.scr.annotations.ReferencePolicy;
 import org.apache.felix.scr.annotations.Service;
 import org.forgerock.json.fluent.JsonValue;
-import org.forgerock.json.resource.JsonResource;
-import org.forgerock.json.resource.JsonResourceAccessor;
-import org.forgerock.openidm.objset.ObjectSetContext;
-import org.forgerock.openidm.scope.ScopeFactory;
+import org.forgerock.json.resource.ConnectionFactory;
+import org.forgerock.json.resource.ResourceException;
+import org.forgerock.json.resource.ServerContext;
+import org.forgerock.openidm.core.ServerConstants;
+import org.forgerock.openidm.router.RouteService;
 import org.forgerock.openidm.util.Accessor;
+import org.forgerock.script.ScriptRegistry;
 
 /**
  * A factory service to create the SyncFailureHandler strategy from config.
@@ -49,30 +50,36 @@ public class SyncFailureHandlerFactoryImpl implements SyncFailureHandlerFactory 
     protected static final String CONFIG_LOGGED_IGNORE = "logged-ignore";
     protected static final String CONFIG_SCRIPT = "script";
 
-    /** Scope factory service. */
-    @Reference(
-            referenceInterface = ScopeFactory.class,
-            bind = "bindScopeFactory",
-            unbind = "unbindScopeFactory",
-            cardinality = ReferenceCardinality.MANDATORY_UNARY,
-            policy = ReferencePolicy.DYNAMIC
-    )
-    private ScopeFactory scopeFactory;
+    /** Script Registry service. */
+    @Reference(policy = ReferencePolicy.DYNAMIC)
+    protected ScriptRegistry scriptRegistry;
 
-    protected void bindScopeFactory(ScopeFactory scopeFactory) {
-        this.scopeFactory = scopeFactory;
+    private void bindScriptRegistry(final ScriptRegistry service) {
+        scriptRegistry = service;
     }
 
-    protected void unbindScopeFactory(ScopeFactory scopeFactory) {
-        this.scopeFactory = null;
+    private void unbindScriptRegistry(final ScriptRegistry service) {
+        scriptRegistry = null;
     }
+
+    /** The Connection Factory */
+    @Reference(policy = ReferencePolicy.STATIC, target="(service.pid=org.forgerock.openidm.internal)")
+    protected ConnectionFactory connectionFactory;
 
     /** the router */
-    @Reference(referenceInterface = JsonResource.class,
-            cardinality = ReferenceCardinality.MANDATORY_UNARY,
-            policy = ReferencePolicy.STATIC,
-            target = "(service.pid=org.forgerock.openidm.router)")
-    private JsonResource router;
+    @Reference(target = "("+ ServerConstants.ROUTER_PREFIX + "=/*)")
+    RouteService routeService;
+    ServerContext routerContext = null;
+
+    private void bindRouteService(final RouteService service) throws ResourceException {
+        routeService = service;
+        routerContext = service.createServerContext();
+    }
+
+    private void unbindRouteService(final RouteService service) {
+        routeService = null;
+        routerContext = null;
+    }
 
     /**
      * Create a <em>SyncFailureHandler</em> from the config.  The config should optionally
@@ -90,7 +97,7 @@ public class SyncFailureHandlerFactoryImpl implements SyncFailureHandlerFactory 
      * @param config the config for the SyncFailureHandler
      * @return the SyncFailureHandler
      */
-    public SyncFailureHandler create(JsonValue config) {
+    public SyncFailureHandler create(JsonValue config) throws Exception {
 
         if (null == config || config.isNull()) {
             return InfiniteRetrySyncFailureHandler.INSTANCE;
@@ -121,13 +128,13 @@ public class SyncFailureHandlerFactoryImpl implements SyncFailureHandlerFactory 
      * @param config the config that further specifies the sync failure handler
      * @return the SyncFailureHandler
      */
-    private SyncFailureHandler getPostRetryHandler(JsonValue config) {
+    private SyncFailureHandler getPostRetryHandler(JsonValue config) throws Exception {
         if (config.isString()) {
             if (CONFIG_DEAD_LETTER.equals(config.asString())) {
                 return new DeadLetterQueueHandler(
-                        new Accessor<JsonResourceAccessor>() {
-                            public JsonResourceAccessor access() {
-                                return new JsonResourceAccessor(router, ObjectSetContext.get());
+                        connectionFactory, new Accessor<ServerContext>() {
+                            public ServerContext access() {
+                                return routerContext;
                             }
                         });
             } else if (CONFIG_LOGGED_IGNORE.equals(config.asString())) {
@@ -136,13 +143,15 @@ public class SyncFailureHandlerFactoryImpl implements SyncFailureHandlerFactory 
         }
         else if (config.isMap()) {
             if (config.get(CONFIG_SCRIPT).isMap()) {
-                return new ScriptedSyncFailureHandler(scopeFactory, config.get(CONFIG_SCRIPT),
+                return new ScriptedSyncFailureHandler(
+                        scriptRegistry,
+                        config.get(CONFIG_SCRIPT),
                         // pass internal handlers so a script can call them if desired
                         new LoggedIgnoreHandler(),
                         new DeadLetterQueueHandler(
-                                new Accessor<JsonResourceAccessor>() {
-                                    public JsonResourceAccessor access() {
-                                        return new JsonResourceAccessor(router, ObjectSetContext.get());
+                                connectionFactory, new Accessor<ServerContext>() {
+                                    public ServerContext access() {
+                                        return routerContext;
                                     }
                                 }));
             }

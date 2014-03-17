@@ -17,9 +17,9 @@ package org.forgerock.openidm.provisioner.openicf.syncfailure;
 
 import org.codehaus.jackson.map.ObjectMapper;
 import org.forgerock.json.fluent.JsonValue;
-import org.forgerock.json.resource.JsonResource;
-import org.forgerock.openidm.scope.ScopeFactory;
 
+import org.forgerock.openidm.router.RouteService;
+import org.forgerock.script.ScriptRegistry;
 import org.testng.Assert;
 import org.testng.annotations.BeforeTest;
 import org.testng.annotations.Test;
@@ -45,15 +45,15 @@ public class SyncFailureHandlerFactoryImplTest {
     public void setUp() throws Exception {
         mapper = new ObjectMapper();
         factory = createInitialFactory();
-        Field bind = SyncFailureHandlerFactoryImpl.class.getDeclaredField("scopeFactory");
+        Field bind = SyncFailureHandlerFactoryImpl.class.getDeclaredField("scriptRegistry");
         if (null != bind) {
             bind.setAccessible(true);
-            bind.set(factory, mock(ScopeFactory.class));
+            bind.set(factory, mock(ScriptRegistry.class));
         }
-        bind = SyncFailureHandlerFactoryImpl.class.getDeclaredField("router");
+        bind = SyncFailureHandlerFactoryImpl.class.getDeclaredField("routeService");
         if (null != bind) {
             bind.setAccessible(true);
-            bind.set(factory, mock(JsonResource.class));
+            bind.set(factory, mock(RouteService.class));
         }
     }
 

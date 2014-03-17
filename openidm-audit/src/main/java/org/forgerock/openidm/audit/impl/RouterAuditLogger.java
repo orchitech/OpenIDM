@@ -1,7 +1,7 @@
 /*
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS HEADER.
  *
- * Copyright (c) 2013 ForgeRock AS. All rights reserved.
+ * Copyright (c) 2013-2014 ForgeRock AS. All rights reserved.
  *
  * The contents of this file are subject to the terms
  * of the Common Development and Distribution License
@@ -26,30 +26,29 @@ package org.forgerock.openidm.audit.impl;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
-
-import org.apache.felix.scr.annotations.Reference;
+import java.util.Set;
 
 import org.codehaus.jackson.map.ObjectMapper;
 import org.forgerock.json.fluent.JsonValue;
-import org.forgerock.json.resource.JsonResource;
-import org.forgerock.json.resource.JsonResourceAccessor;
-import org.forgerock.json.resource.JsonResourceException;
-import org.forgerock.openidm.audit.AuditService;
-import org.forgerock.openidm.audit.util.ActivityLog;
-import org.forgerock.openidm.config.InvalidException;
-import org.forgerock.openidm.objset.BadRequestException;
-import org.forgerock.openidm.objset.ForbiddenException;
-import org.forgerock.openidm.objset.InternalServerErrorException;
-import org.forgerock.openidm.objset.ObjectSetContext;
-import org.forgerock.openidm.objset.ObjectSetException;
-import org.forgerock.openidm.objset.Patch;
-import org.forgerock.openidm.repo.QueryConstants;
+import org.forgerock.json.resource.BadRequestException;
+import org.forgerock.json.resource.ConnectionFactory;
+import org.forgerock.json.resource.CreateRequest;
+import org.forgerock.json.resource.InternalServerErrorException;
+import org.forgerock.json.resource.QueryRequest;
+import org.forgerock.json.resource.QueryResult;
+import org.forgerock.json.resource.QueryResultHandler;
+import org.forgerock.json.resource.ReadRequest;
+import org.forgerock.json.resource.Requests;
+import org.forgerock.json.resource.Resource;
+import org.forgerock.json.resource.ResourceException;
+import org.forgerock.json.resource.ServerContext;
+import org.forgerock.openidm.config.enhanced.InvalidException;
 import org.forgerock.openidm.smartevent.EventEntry;
 import org.forgerock.openidm.smartevent.Name;
 import org.forgerock.openidm.smartevent.Publisher;
-import org.forgerock.openidm.util.Accessor;
 import org.osgi.framework.BundleContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -74,18 +73,17 @@ public class RouterAuditLogger extends AbstractAuditLogger implements AuditLogge
     /** the router target */
     private String location;
 
+
     /** provides a reference to the router for real-time query handling */
-    private Accessor<JsonResource> routerReference;
-    // TODO revisit Accessor<?> and name of this reference indirection member 
+    private ConnectionFactory connectionFactory;
 
     /**
      * Constructor.
      *
-     * @param routerAccessor an accessor to the router
+     * @param connectionFactory
      */
-    public RouterAuditLogger(Accessor<JsonResource> routerReference) {
-        super();
-        this.routerReference = routerReference;
+    public RouterAuditLogger(ConnectionFactory connectionFactory) {
+        this.connectionFactory = connectionFactory;
     }
 
     public void setConfig(Map config, BundleContext ctx) throws InvalidException {
@@ -101,187 +99,109 @@ public class RouterAuditLogger extends AbstractAuditLogger implements AuditLogge
     }
 
     /**
-     * Interface to perform an operation on/with/using a router accessor.
-     *
-     * @param <R> The arbitrary return type of the operation.
+     * {@inheritDoc}
      */
-    private interface RouterAccessorOperation<R> {
-        public R execute(JsonResourceAccessor accessor) throws ObjectSetException;
-    }
+    @Override
+    public Map<String, Object> read(ServerContext context, String type, String id) throws ResourceException {
 
-    /**
-     * A utility function to send a message to the router, using the provided router accessor.
-     * This is a convenience method to abstract the boilerplate of
-     * <ul>
-     *     <li>accessing the router via <tt>routerReference</tt></li>
-     *     <li>obtaining the context and adding our "logging marker"</li>
-     *     <li>calling the router with our read/query/create</li>
-     *     <li>removing the logging marker from the context when finished</li>
-     * </ul>
-     *
-     * @param operation A functional unit of work (namely, sending a message on the router to log)
-     * @param <R> the return type from this operation
-     * @return the return value of the operation
-     * @throws ObjectSetException on failure to send message to router
-     */
-    private <R> R sendToRouter(RouterAccessorOperation<R> operation) throws ObjectSetException {
-        final JsonResource router = routerReference.access();
-        if (router == null)
-            throw new InternalServerErrorException("Router unavailable");
+        Map<String, Object> result = new HashMap<String, Object>();
 
-        final JsonValue context = ObjectSetContext.get();
-        try {
-            ActivityLog.enterLogActivity(context, this.getClass().getName());
-            return operation.execute(new JsonResourceAccessor(router, context));
-        } finally {
-            ActivityLog.exitLogActivity(context);
+        if (id == null) {
+            Map<String, String> params = new HashMap<String, String>();
+            params.put("_queryId", "query-all-ids");
+            params.put("fields", "*");
+
+            QueryRequest request = Requests.newQueryRequest(getRouterLocation(type));
+            request.setQueryId("query-all-ids");
+            request.getAdditionalParameters().putAll(params);
+            Set<Resource> results = new HashSet<Resource>();
+            connectionFactory.getConnection().query(context, request, results);
+
+            List<Map<String, Object>> entries = new ArrayList<Map<String, Object>>();
+            for (Resource entry : results) {
+                entries.add(
+                        AuditServiceImpl.formatLogEntry(
+                            unflattenActivityEntry(entry.getContent().asMap()), type));
+            }
+            result.put("entries", entries);
+        } else {
+            ReadRequest request = Requests.newReadRequest(getRouterLocation(type), id);
+            Map<String, Object> entry = connectionFactory.getConnection().read(context, request).getContent().asMap();
+            result = AuditServiceImpl.formatLogEntry(unflattenActivityEntry(entry), type);
         }
+
+        return result;
     }
 
     /**
      * {@inheritDoc}
      */
     @Override
-    public Map<String, Object> read(final String fullId) throws ObjectSetException {
-        final String[] split = AuditServiceImpl.splitFirstLevel(fullId);
-        final String type = split[0];
-        final String id = split[1];
+    public Map<String, Object> query(ServerContext context, String type, Map<String, String> params)
+        throws ResourceException {
 
-        return sendToRouter(
-                new RouterAccessorOperation<Map<String, Object>>() {
-                    public Map<String, Object> execute(JsonResourceAccessor accessor) throws ObjectSetException {
-                        try {
-                            Map<String, Object> result = new HashMap<String, Object>();
+        try {
+            boolean formatted = true;
+            if (params.get("formatted") != null
+                    && !AuditServiceImpl.getBoolValue(params.get("formatted"))) {
+                formatted = false;
+            }
 
-                            if (id == null) {
-                                Map<String, Object> params = new HashMap<String, Object>();
-                                params.put("_queryId", "query-all-ids");
-                                params.put("fields", "*");
-                                Map<String, Object> queryResult = accessor.query(
-                                        location + "/" + fullId,  new JsonValue(params))
-                                    .asMap();
-                                List<Map<String, Object>> entries = new ArrayList<Map<String, Object>>();
-                                for (Map<String, Object> entry :
-                                        (List<Map<String, Object>>) queryResult.get(QueryConstants.QUERY_RESULT)) {
-                                    entries.add(AuditServiceImpl.formatLogEntry(unflattenActivityEntry(entry), type));
-                                }
-                                result.put("entries", entries);
-                            } else {
-                                Map<String, Object> entry = accessor.read(location + "/" + fullId).asMap();
-                                result = AuditServiceImpl.formatLogEntry(unflattenActivityEntry(entry), type);
-                            }
-
-                            return result;
-                        } catch (JsonResourceException e) {
-                            throw new InternalServerErrorException("Unable to route " + fullId + " to " + location, e);
+            QueryRequest request = Requests.newQueryRequest(getRouterLocation(type));
+            request.setQueryId(params.get("_queryId"));
+            request.getAdditionalParameters().putAll(params);
+            final List<Map<String, Object>> queryResults = new ArrayList<Map<String, Object>>();
+            connectionFactory.getConnection().query(context, request,
+                    new QueryResultHandler() {
+                        @Override
+                        public void handleError(ResourceException error) {
+                            // Continue
                         }
-                    }
-                });
-    }
 
-    /**
-     * {@inheritDoc}
-     */
-    @Override
-    public Map<String, Object> query(final String fullId, final Map<String, Object> params) throws ObjectSetException {
-        final String[] split = AuditServiceImpl.splitFirstLevel(fullId);
-        final String type = split[0];
-        final String id = split[1];
-
-        return sendToRouter(
-                new RouterAccessorOperation<Map<String, Object>>() {
-                    public Map<String, Object> execute(JsonResourceAccessor accessor) throws ObjectSetException {
-                        try {
-                            boolean formatted = true;
-                            if (params.get("formatted") != null 
-                                    && !AuditServiceImpl.getBoolValue(params.get("formatted"))) {
-                                formatted = false;
-                            }
-                            Map<String, Object> queryResults = accessor.query(
-                                    location + "/" + fullId, new JsonValue(params)).asMap();
-                            List<Map<String, Object>> entryList = 
-                                (List<Map<String, Object>>) queryResults.get(QueryConstants.QUERY_RESULT);
-                        
-                            if (AuditServiceImpl.TYPE_RECON.equals(type)) {
-                                return AuditServiceImpl.getReconResults(
-                                        entryList, (String)params.get("reconId"), formatted);
-                            } else if (AuditServiceImpl.TYPE_ACTIVITY.equals(type)) {
-                                return AuditServiceImpl.getActivityResults(unflattenActivityList(entryList), formatted);
-                            } else if (AuditServiceImpl.TYPE_ACCESS.equals(type)) {
-                                return AuditServiceImpl.getAccessResults(entryList, formatted);
-                            } else {
-                                String queryId = (String) params.get("_queryId");
-                                throw new BadRequestException("Unsupported queryId " + queryId + " on type " + type);
-                            }
-                        } catch (Exception e) {
-                            throw new BadRequestException(e);
+                        @Override
+                        public boolean handleResource(Resource resource) {
+                            queryResults.add(resource.getContent().asMap());
+                            return true;
                         }
-                    }
-                });
+
+                        @Override
+                        public void handleResult(QueryResult result) {
+                            // Ignore
+                        }
+                    });
+
+            if (AuditServiceImpl.TYPE_RECON.equals(type)) {
+                return AuditServiceImpl.getReconResults(queryResults, formatted);
+            } else if (AuditServiceImpl.TYPE_ACTIVITY.equals(type)) {
+                return AuditServiceImpl.getActivityResults(unflattenActivityList(queryResults), formatted);
+            } else if (AuditServiceImpl.TYPE_ACCESS.equals(type)) {
+                return AuditServiceImpl.getAccessResults(queryResults, formatted);
+            } else {
+                String queryId = params.get("_queryId");
+                throw new BadRequestException("Unsupported queryId " + queryId + " on type " + type);
+            }
+        } catch (Exception e) {
+            throw new BadRequestException(e);
+        }
     }
     
     /**
      * {@inheritDoc}
      */
     @Override
-    public void create(final String fullId, final Map<String, Object> obj) throws ObjectSetException {
-        EventEntry measure = Publisher.start(EVENT_AUDIT_CREATE, obj, null);
-        final String[] split = AuditServiceImpl.splitFirstLevel(fullId);
-        final String type = split[0];
-        final String id = split[1];
+    public void create(ServerContext context, String type, Map<String, Object> object) throws ResourceException {
+        EventEntry measure = Publisher.start(EVENT_AUDIT_CREATE, object, null);
 
         try {
-            sendToRouter(
-                    new RouterAccessorOperation<Void>() {
-                        public Void execute(JsonResourceAccessor accessor) throws ObjectSetException {
-                            try {
-                                AuditServiceImpl.preformatLogEntry(type, obj);
-                                Map<String, Object> sanitized = sanitizeObject(obj);
-                                accessor.create(location + "/" + fullId, new JsonValue(sanitized));
-                                return null;
-                            } catch (IOException e) {
-                                throw new InternalServerErrorException("Unable to stringify object to be logged", e);
-                            } catch (JsonResourceException e) {
-                                throw new InternalServerErrorException("Unable to route " + fullId + " to " + location, e);
-                            }
-                        }
-                    });
-
+            AuditServiceImpl.preformatLogEntry(type, object);
+            Map<String, Object> sanitized = sanitizeObject(object);
+            CreateRequest request = Requests.newCreateRequest(getRouterLocation(type), new JsonValue(sanitized));
+            connectionFactory.getConnection().create(context, request);
+        } catch (IOException e) {
+            throw new InternalServerErrorException("Unable to stringify object to be logged", e);
         } finally {
             measure.end();
         }
-    }
-
-    /**
-     * Audit service does not support changing audit entries.
-     */
-    @Override
-    public void update(String fullId, String rev, Map<String, Object> obj) throws ObjectSetException {
-        throw new ForbiddenException("Not allowed on audit service");
-    }
-
-    /**
-     * Audit service currently does not support deleting audit entries.
-     */ 
-    @Override
-    public void delete(String fullId, String rev) throws ObjectSetException {
-        throw new ForbiddenException("Not allowed on audit service");
-    }
-
-    /**
-     * Audit service does not support changing audit entries.
-     */
-    @Override
-    public void patch(String id, String rev, Patch patch) throws ObjectSetException {
-        throw new ForbiddenException("Not allowed on audit service");
-    }
-
-    /**
-     * Audit service does not support actions on audit entries.
-     */
-    @Override
-    public Map<String, Object> action(String id, Map<String, Object> params) throws ObjectSetException {
-        throw new ForbiddenException("Not allowed on audit service");
     }
 
 
@@ -346,6 +266,10 @@ public class RouterAuditLogger extends AbstractAuditLogger implements AuditLogge
             }
         }
         return sanitized;
+    }
+
+    private String getRouterLocation(String type) {
+        return new StringBuilder(location).append("/").append(type).toString();
     }
 
 }

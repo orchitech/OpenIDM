@@ -79,7 +79,7 @@ define("org/forgerock/openidm/ui/admin/workflow/tasks/TaskDetailsView", [
             this.parentRender(function() {
                 this.task = task;
 
-                var template = this.getGenerationTemplate(definition), view, passJSLint;
+                var template = this.getGenerationTemplate(definition, task), view, passJSLint;
                 delete this.definitionFormPropertyMap;
                 
                 if(definition.formResourceKey) {
@@ -103,8 +103,8 @@ define("org/forgerock/openidm/ui/admin/workflow/tasks/TaskDetailsView", [
                     }, this));
                     return;
                 } else {
-                    this.definitionFormPropertyMap = formGenerationUtils.buildPropertyTypeMap(definition.formProperties);
-                    templateTaskForm.render(task, category, formGenerationUtils.generateTemplateFromFormProperties(definition, task.formProperties), _.bind(function() {
+                    this.definitionFormPropertyMap = formGenerationUtils.buildPropertyTypeMap(definition.formProperties.formPropertyHandlers);
+                    templateTaskForm.render(task, category, formGenerationUtils.generateTemplateFromFormProperties({"formProperties": definition.formProperties.formPropertyHandlers}, task.formProperties), _.bind(function() {
                         validatorsManager.bindValidators(this.$el);
                         validatorsManager.validateAllFields(this.$el);
                         
@@ -118,12 +118,13 @@ define("org/forgerock/openidm/ui/admin/workflow/tasks/TaskDetailsView", [
             });            
         },
         
-        getGenerationTemplate: function(definition) {
-            var property, i;
-            for(i = 0; i < definition.formProperties.length; i++) {
-                property = definition.formProperties[i];
+        getGenerationTemplate: function(definition, task) {
+            var formPropertyHandlers = definition.formProperties.formPropertyHandlers, property, i;
+
+            for(i = 0; i < formPropertyHandlers.length; i++) {
+                property = formPropertyHandlers[i];
                 if(property._id === "_formGenerationTemplate") {
-                    return property.defaultExpression.expressionText;
+                    return task.formProperties[i][property._id];
                 }
             }
             return false;

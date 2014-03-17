@@ -25,65 +25,71 @@ package org.forgerock.openidm.workflow.activiti.impl.session;
 
 import org.activiti.engine.impl.interceptor.Session;
 import org.activiti.engine.impl.interceptor.SessionFactory;
-import org.forgerock.openidm.objset.JsonResourceObjectSet;
-import org.forgerock.openidm.objset.ObjectSet;
-import org.forgerock.openidm.workflow.HttpRemoteJsonResource;
+import org.forgerock.json.resource.PersistenceConfig;
+import org.forgerock.script.ScriptRegistry;
 
 /**
  * Custom SessionFactory for OpenIDM
- * Provides access to the OpenIDM router
+ * Provides access to the OpenIDM functions
  * 
  * @author orsolyamebold
  */
 public class OpenIDMSessionFactory implements SessionFactory {
 
-    private ObjectSet router;
-    private String url;
-    private String user;
-    private String password;
-
+    private PersistenceConfig persistenceConfig;
+    private ScriptRegistry scriptRegistry;
+//    private String url;
+//    private String user;
+//    private String password;
+//
     /**
      * Creates new OpenIDMSessionFactory
      */
     public OpenIDMSessionFactory() {
     }
 
+//
+//    /**
+//     * Creates new OpenIDMSessionFactory
+//     * @param url base URL of the OpenIDM REST interface
+//     * @param user OpenIDM username
+//     * @param password OpenIDM password
+//     */
+//    public OpenIDMSessionFactory(String url, String user, String password) {
+//        this.url = url;
+//        this.user = user;
+//        this.password = password;
+//    }
+//
+//    public void setPassword(String password) {
+//        this.password = password;
+//    }
+//
+//    public void setUrl(String url) {
+//        this.url = url;
+//    }
+//
+//    public void setUser(String user) {
+//        this.user = user;
+//    }
+//    
     /**
      * Creates new OpenIDMSessionFactory
-     * @param url base URL of the OpenIDM REST interface
-     * @param user OpenIDM username
-     * @param password OpenIDM password
+     * @param router Router newBuilder of the OpenIDM
      */
-    public OpenIDMSessionFactory(String url, String user, String password) {
-        this.url = url;
-        this.user = user;
-        this.password = password;
+    public OpenIDMSessionFactory(PersistenceConfig persistenceConfig, ScriptRegistry scriptRegistry) {
+        this.persistenceConfig = persistenceConfig;
+        this.scriptRegistry = scriptRegistry;
     }
 
-    public void setPassword(String password) {
-        this.password = password;
+    public void setPersistenceConfig(PersistenceConfig persistenceConfig) {
+        this.persistenceConfig = persistenceConfig;
     }
 
-    public void setUrl(String url) {
-        this.url = url;
-    }
-
-    public void setUser(String user) {
-        this.user = user;
+    public void setScriptRegistry(ScriptRegistry scriptRegistry) {
+        this.scriptRegistry = scriptRegistry;
     }
     
-    /**
-     * Creates new OpenIDMSessionFactory
-     * @param router Router instance of the OpenIDM
-     */
-    public OpenIDMSessionFactory(ObjectSet router) {
-        this.router = router;
-    }
-
-    public void setRouter(ObjectSet router) {
-        this.router = router;
-    }
-
     @Override
     public Class<?> getSessionType() {
         return OpenIDMSession.class;
@@ -91,9 +97,6 @@ public class OpenIDMSessionFactory implements SessionFactory {
 
     @Override
     public Session openSession() {
-        if (router == null) {
-            router = new JsonResourceObjectSet(new HttpRemoteJsonResource(url, user, password));
-        }
-        return new OpenIDMSessionImpl(router);
+        return new OpenIDMSessionImpl(persistenceConfig, scriptRegistry);
     }
 }

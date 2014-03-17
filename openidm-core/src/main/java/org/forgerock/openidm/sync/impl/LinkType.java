@@ -30,14 +30,10 @@ import org.forgerock.json.fluent.JsonValue;
 import org.forgerock.json.fluent.JsonValueException;
 
 // OpenIDM
-import org.forgerock.openidm.config.InvalidException;
-import org.forgerock.openidm.objset.NotFoundException;
-import org.forgerock.openidm.objset.ObjectSetException;
-import org.forgerock.openidm.repo.QueryConstants;
-import org.forgerock.openidm.sync.SynchronizationException;
+import org.forgerock.openidm.config.enhanced.InvalidException;
 
 /**
- * Represents the sharable Link Types, 
+ * Represents the sharable Link Types,
  * and helpers for mappings to find and use matching link types
  * as mappings can share link sets, bi-directional.
  *
@@ -49,25 +45,25 @@ class LinkType {
 
     // The link type name
     String name;
-    
+
     // The linked object sets, bi-directional
     String firstObjectSet;
     String secondObjectSet;
-    
+
     // Whether linking should be case sensitive on the first or second IDs
     boolean firstCaseSensitive;
     boolean secondCaseSensitive;
 
     // Represents how this LinkType matches a given ObjectMapping
     Match match;
-    
+
     /**
      * LinkType factory method
      * @param forMapping the mapping to find the link type for
      * @param allMappings all configured mappings
-     * @return the link type matching the requested 
+     * @return the link type matching the requested
      */
-    public static LinkType getLinkType(ObjectMapping forMapping, List<ObjectMapping> allMappings) {        
+    public static LinkType getLinkType(ObjectMapping forMapping, List<ObjectMapping> allMappings) {
         ObjectMapping linkDefiner = null;
         String linkTypeName = forMapping.getLinkTypeName();
         for (ObjectMapping otherMapping : allMappings) {
@@ -84,30 +80,30 @@ class LinkType {
             + " Could not find a mapping for " + linkTypeName + " used in " + forMapping.getName();
             throw new InvalidException(warning);
         }
-        
+
         LinkType.Match match = Match.getLinkTypeMatch(forMapping, linkDefiner);
-   
-        return new LinkType(linkDefiner.getName(), linkDefiner.getSourceObjectSet(), linkDefiner.getTargetObjectSet(), 
+
+        return new LinkType(linkDefiner.getName(), linkDefiner.getSourceObjectSet(), linkDefiner.getTargetObjectSet(),
                 linkDefiner.getSourceIdsCaseSensitive(), linkDefiner.getTargetIdsCaseSensitive(), match);
     }
 
     public String getName() {
         return name;
     }
-    
+
     public boolean useReverse() {
         return Match.MATCH_REVERSE.equals(match);
     }
-    
+
     public boolean getFirstCaseSensitive() {
         return firstCaseSensitive;
     }
-    
+
     public boolean getSecondCaseSensitive() {
         return secondCaseSensitive;
     }
-    
-    LinkType(String name, String firstObjectSet, String secondObjectSet, 
+
+    LinkType(String name, String firstObjectSet, String secondObjectSet,
             boolean firstCaseSensitive, boolean secondCaseSensitive, Match match) {
         this.name = name;
         this.firstObjectSet = firstObjectSet;
@@ -115,10 +111,10 @@ class LinkType {
         this.firstCaseSensitive = firstCaseSensitive;
         this.secondCaseSensitive = secondCaseSensitive;
         this.match = match;
-    } 
+    }
 
     /**
-     * Normalizes the source ID if required, e.g. make lower case for 
+     * Normalizes the source ID if required, e.g. make lower case for
      * case insensitive id comparison purposes
      * @param aSourceId the original id
      * @return normalized id
@@ -132,7 +128,7 @@ class LinkType {
     }
 
     /**
-     * Normalizes the target ID if required, e.g. make lower case for 
+     * Normalizes the target ID if required, e.g. make lower case for
      * case insensitive id comparison purposes
      * @param aSourceId the original id
      * @return normalized id
@@ -144,7 +140,7 @@ class LinkType {
             return aTargetId;
         }
     }
-    
+
     /**
      * Unconditionally normalizes the given ID, currently to lower case
      * @param anId the original id
@@ -182,9 +178,9 @@ class LinkType {
     public enum Match {
         MATCH_EXACT,
         MATCH_REVERSE;
-        
+
         private final static Logger logger = LoggerFactory.getLogger(Match.class);
-        
+
         static Match getLinkTypeMatch(ObjectMapping forMapping, ObjectMapping linkDefiner) {
             if (forMapping.getSourceObjectSet().equals(linkDefiner.getSourceObjectSet())
                     && forMapping.getTargetObjectSet().equals(linkDefiner.getTargetObjectSet())) {
@@ -199,8 +195,8 @@ class LinkType {
                 logger.info("Mapping {} shares the links of {} in the opposite direction, named {}.", new Object[] {forMapping.getName(), linkDefiner.getName(), linkDefiner.getLinkTypeName()});
                 return MATCH_REVERSE;
             } else {
-                throw new InvalidException("Mappings " + forMapping.getName() + " and " + linkDefiner.getName() + " {} are configured to share the same links of " 
-                        + linkDefiner.getLinkTypeName() + ", but use incompatible source or targets: (" + forMapping.getSourceObjectSet() + "->" + forMapping.getTargetObjectSet() 
+                throw new InvalidException("Mappings " + forMapping.getName() + " and " + linkDefiner.getName() + " {} are configured to share the same links of "
+                        + linkDefiner.getLinkTypeName() + ", but use incompatible source or targets: (" + forMapping.getSourceObjectSet() + "->" + forMapping.getTargetObjectSet()
                         + ") vs (" + linkDefiner.getSourceObjectSet() + "->" + linkDefiner.getTargetObjectSet() + ")");
             }
         }

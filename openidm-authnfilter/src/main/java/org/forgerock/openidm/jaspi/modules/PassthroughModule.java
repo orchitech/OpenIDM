@@ -11,13 +11,16 @@
  * Header, with the fields enclosed by brackets [] replaced by your own identifying
  * information: "Portions copyright [year] [name of copyright owner]".
  *
- * Copyright 2013 ForgeRock Inc.
+ * Copyright 2013-2014 ForgeRock Inc.
  */
 
 package org.forgerock.openidm.jaspi.modules;
 
 import org.apache.commons.lang3.StringUtils;
 import org.forgerock.json.fluent.JsonValue;
+import org.forgerock.json.resource.ResourceException;
+import org.forgerock.json.resource.servlet.SecurityContextFactory;
+import org.forgerock.openidm.jaspi.config.OSGiAuthnFilterBuilder;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -43,7 +46,6 @@ public class PassthroughModule extends IDMServerAuthModule {
     private final static Logger LOGGER = LoggerFactory.getLogger(PassthroughModule.class);
 
     private static String passThroughAuth;
-    private static JsonValue propertyMapping;
 
     private PassthroughAuthenticator passthroughAuthenticator;
 
@@ -81,9 +83,20 @@ public class PassthroughModule extends IDMServerAuthModule {
         passThroughAuth = config.get("passThroughAuth").asString();
 
         // User properties - default to NULL if not defined
-        propertyMapping = config.get("propertyMapping");
+        JsonValue properties = config.get("propertyMapping");
+        String userRolesProperty = properties.get("userRoles").asString();
 
-        passthroughAuthenticator = new PassthroughAuthenticator(passThroughAuth, propertyMapping, defaultRoles);
+        try {
+            passthroughAuthenticator = new PassthroughAuthenticator(
+                    OSGiAuthnFilterBuilder.getConnectionFactory(),
+                    OSGiAuthnFilterBuilder.getRouter().createServerContext(),
+                    passThroughAuth,
+                    userRolesProperty,
+                    defaultRoles);
+        } catch (ResourceException e) {
+            //TODO
+            e.printStackTrace();
+        }
     }
 
     /**
@@ -94,11 +107,8 @@ public class PassthroughModule extends IDMServerAuthModule {
     @SuppressWarnings("unchecked")
     void setPassThroughAuthOnRequest(MessageInfo messageInfo) {
         Map<String, Object> contextMap = (Map<String, Object>) messageInfo.getMap()
-                .get(IDMServerAuthModule.CONTEXT_REQUEST_KEY);
+                .get(SecurityContextFactory.ATTRIBUTE_AUTHZID);
         contextMap.put("passThroughAuth", passThroughAuth);
-        if (propertyMapping != null) {
-            contextMap.put("propertyMapping", propertyMapping.getObject());
-        }
     }
 
     /**
@@ -107,13 +117,13 @@ public class PassthroughModule extends IDMServerAuthModule {
      * @param messageInfo {@inheritDoc}
      * @param clientSubject {@inheritDoc}
      * @param serviceSubject {@inheritDoc}
-     * @param authData {@inheritDoc}
+     * @param securityContextMapper {@inheritDoc}
      * @return {@inheritDoc}
      * @throws AuthException If there is a problem performing the authentication.
      */
     @Override
     protected AuthStatus validateRequest(MessageInfo messageInfo, Subject clientSubject, Subject serviceSubject,
-            AuthData authData) throws AuthException {
+            SecurityContextMapper securityContextMapper) throws AuthException {
 
         LOGGER.debug("PassthroughModule: validateRequest START");
 
@@ -133,18 +143,12 @@ public class PassthroughModule extends IDMServerAuthModule {
                 return AuthStatus.SEND_FAILURE;
             }
 
-            authData.setUsername(username);
-            clientSubject.getPrincipals().add(new Principal() {
-                public String getName() {
-                    return username;
-                }
-            });
-            boolean authenticated = passthroughAuthenticator.authenticate(authData, password);
+            boolean authenticated = passthroughAuthenticator.authenticate(username, password, securityContextMapper);
 
             if (authenticated) {
                 LOGGER.debug("PassthroughModule: Authentication successful");
-                LOGGER.debug("Found valid session for {} id {} with roles {}", authData.getUsername(),
-                        authData.getUserId(), authData.getRoles());
+                LOGGER.debug("Found valid session for {} with roles {}", username,
+                        securityContextMapper.getRoles());
 
                 //Auth success will be logged in IDMServerAuthModule super type.
                 return AuthStatus.SUCCESS;
@@ -167,7 +171,7 @@ public class PassthroughModule extends IDMServerAuthModule {
      */
     @Override
     public AuthStatus secureResponse(MessageInfo messageInfo, Subject serviceSubject) {
-        return super.secureResponse(messageInfo, serviceSubject);
+        return AuthStatus.SEND_SUCCESS;
     }
 
     /**

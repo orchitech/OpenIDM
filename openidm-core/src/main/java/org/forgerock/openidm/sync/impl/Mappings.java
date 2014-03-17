@@ -25,7 +25,6 @@
 package org.forgerock.openidm.sync.impl;
 
 import org.forgerock.json.fluent.JsonValue;
-import org.forgerock.openidm.sync.SynchronizationException;
 
 /**
  * Interface to manage and access mappings
@@ -36,13 +35,13 @@ public interface Mappings {
      * Get a mapping by name
      * @param name the mapping name
      * @return the found mapping
-     * @throws SynchronizationException if retrieving the mapping failed 
+     * @throws SynchronizationException if retrieving the mapping failed
      */
     ObjectMapping getMapping(String name) throws SynchronizationException;
-    
+
     /**
-     * Factory method to instantiate and register a new mapping, 
-     * given the supplied config 
+     * Factory method to instantiate and register a new mapping,
+     * given the supplied config
      * @param mappingConfig the configuration details of the mapping
      * @return the mapping instance
      */

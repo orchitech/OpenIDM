@@ -1,7 +1,7 @@
 /**
 * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS HEADER.
 *
-* Copyright (c) 2012 ForgeRock AS. All Rights Reserved
+* Copyright (c) 2012-2014 ForgeRock AS. All Rights Reserved
 *
 * The contents of this file are subject to the terms
 * of the Common Development and Distribution License
@@ -35,42 +35,54 @@ import java.util.concurrent.Executors;
 import org.forgerock.json.fluent.JsonPointer;
 import org.forgerock.json.fluent.JsonValue;
 import org.forgerock.json.fluent.JsonValueException;
-import org.forgerock.json.resource.JsonResource;
-import org.forgerock.json.resource.JsonResourceAccessor;
-import org.forgerock.json.resource.JsonResourceException;
-import org.forgerock.openidm.objset.ObjectSetContext;
-import org.forgerock.openidm.objset.PreconditionFailedException;
+import org.forgerock.json.resource.ConnectionFactory;
+import org.forgerock.json.resource.PreconditionFailedException;
+import org.forgerock.json.resource.QueryRequest;
+import org.forgerock.json.resource.QueryResult;
+import org.forgerock.json.resource.QueryResultHandler;
+import org.forgerock.json.resource.RequestHandler;
+import org.forgerock.json.resource.Requests;
+import org.forgerock.json.resource.Resource;
+import org.forgerock.json.resource.ResourceException;
+import org.forgerock.json.resource.Resources;
+import org.forgerock.json.resource.RootContext;
+import org.forgerock.json.resource.ServerContext;
+import org.forgerock.json.resource.UpdateRequest;
 import org.forgerock.openidm.quartz.impl.ExecutionException;
-import org.forgerock.openidm.repo.QueryConstants;
-import org.forgerock.openidm.scope.ScopeFactory;
-import org.forgerock.openidm.script.Script;
-import org.forgerock.openidm.script.ScriptException;
-import org.forgerock.openidm.script.Scripts;
+import org.forgerock.openidm.quartz.impl.ObjectSetContext;
+import org.forgerock.openidm.router.RouteService;
 import org.forgerock.openidm.util.ConfigMacroUtil;
 import org.forgerock.openidm.util.DateUtil;
+import org.forgerock.script.Script;
+import org.forgerock.script.ScriptEntry;
+import org.forgerock.script.ScriptRegistry;
 import org.joda.time.DateTime;
 import org.joda.time.ReadablePeriod;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import javax.script.ScriptException;
+
 public class TaskScannerJob {
     private final static Logger logger = LoggerFactory.getLogger(TaskScannerJob.class);
     private final static DateUtil DATE_UTIL = DateUtil.getDateUtil("UTC");
 
+    private ConnectionFactory connectionFactory;
     private TaskScannerContext context;
-    private JsonResource router;
-    private ScopeFactory scopeFactory;
-    private Script script;
+    private RouteService routeService;
+    private ScriptRegistry scopeFactory;
+    private ScriptEntry script;
 
-    public TaskScannerJob(TaskScannerContext context, JsonResource router, ScopeFactory scopeFactory)
-            throws ExecutionException {
+    public TaskScannerJob(ConnectionFactory connectionFactory, TaskScannerContext context, RouteService routeService, ScriptRegistry scopeFactory)
+            throws ExecutionException, ScriptException {
+        this.connectionFactory = connectionFactory;
         this.context = context;
-        this.router = router;
+        this.routeService = routeService;
         this.scopeFactory = scopeFactory;
 
         JsonValue scriptValue = context.getScriptValue();
         if (!scriptValue.isNull()) {
-            this.script = Scripts.newInstance(context.getScriptName(), scriptValue);
+            this.script = scopeFactory.takeScript(scriptValue);
         } else {
             throw new ExecutionException("No valid script '" + scriptValue + "' configured in task scanner.");
         }
@@ -96,7 +108,7 @@ public class TaskScannerJob {
             }
         } else {
             // Launch a new thread for the whole taskscan process
-            final JsonValue threadContext = ObjectSetContext.get();
+            final ServerContext threadContext = ObjectSetContext.get();
             Runnable command = new Runnable() {
                 @Override
                 public void run() {
@@ -135,7 +147,7 @@ public class TaskScannerJob {
         context.startQuery();
         try {
             results = fetchAllObjects();
-        } catch (JsonResourceException e1) {
+        } catch (ResourceException e1) {
             throw new ExecutionException("Error during query", e1);
         }
         context.endQuery();
@@ -152,7 +164,7 @@ public class TaskScannerJob {
         List<JsonValue> resultSets = splitResultsOverThreads(results, context.getNumberOfThreads(), maxRecords);
         logger.debug("Split result set into {} units", resultSets.size());
 
-        final JsonValue threadContext = ObjectSetContext.get();
+        final ServerContext threadContext = ObjectSetContext.get();
         List<Callable<Object>> todo = new ArrayList<Callable<Object>>();
         for (final JsonValue result : resultSets) {
             Runnable command = new Runnable() {
@@ -241,7 +253,7 @@ public class TaskScannerJob {
 
             try {
                 claimAndExecScript(input, startTimeString);
-            } catch (JsonResourceException e) {
+            } catch (ResourceException e) {
                 throw new ExecutionException("Error during claim and execution phase", e);
             }
         }
@@ -254,7 +266,7 @@ public class TaskScannerJob {
      * @return JsonValue containing a list of all the retrieved objects
      * @throws JsonResourceException
      */
-    private JsonValue fetchAllObjects() throws JsonResourceException {
+    private JsonValue fetchAllObjects() throws ResourceException {
         JsonValue flatParams = flattenJson(context.getScanValue());
         ConfigMacroUtil.expand(flatParams);
         return performQuery(context.getObjectID(), flatParams);
@@ -267,10 +279,33 @@ public class TaskScannerJob {
      * @return the set of results from the performed query
      * @throws JsonResourceException
      */
-    private JsonValue performQuery(String resourceID, JsonValue params) throws JsonResourceException {
-        JsonValue queryResults = null;
-        queryResults = accessor().query(resourceID, params);
-        return queryResults.get(QueryConstants.QUERY_RESULT);
+    private JsonValue performQuery(String resourceID, JsonValue params) throws ResourceException {
+        final JsonValue queryResults = new JsonValue(new ArrayList<Map<String, Object>>());;
+        ServerContext c = accessor();
+        QueryRequest r = Requests.newQueryRequest(resourceID);
+        r.setQueryId(params.get("_queryId").asString());
+        r.setQueryExpression(params.get("_queryExpression").asString());
+        for (Map.Entry<String, Object> e: params.asMap().entrySet()){
+            r.getAdditionalParameters().put(e.getKey(), String.valueOf(e.getValue()));
+        }
+        connectionFactory.getConnection().query(c, r, new QueryResultHandler() {
+            @Override
+            public void handleError(ResourceException error) {
+                // Ignore
+            }
+
+            @Override
+            public boolean handleResource(Resource resource) {
+                queryResults.add(resource.getContent().getObject());
+                return true;
+            }
+
+            @Override
+            public void handleResult(QueryResult result) {
+                // Ignore
+            }
+        });
+        return queryResults;
     }
 
     /**
@@ -279,9 +314,11 @@ public class TaskScannerJob {
      * @return the results from the performed read
      * @throws JsonResourceException
      */
-    private JsonValue performRead(String resourceID) throws JsonResourceException {
+    private JsonValue performRead(String resourceID) throws ResourceException {
         JsonValue readResults = null;
-        readResults = accessor().read(resourceID);
+        ServerContext c = accessor();
+
+        readResults = connectionFactory.getConnection().read(c, Requests.newReadRequest(resourceID)).getContent();
         return readResults;
     }
 
@@ -294,7 +331,7 @@ public class TaskScannerJob {
      * @return the updated JsonValue
      * @throws JsonResourceException
      */
-    private JsonValue updateValueWithObject(String resourceID, JsonValue value, JsonPointer path, Object obj) throws JsonResourceException {
+    private JsonValue updateValueWithObject(String resourceID, JsonValue value, JsonPointer path, Object obj) throws ResourceException {
         ensureJsonPointerExists(path, value);
         value.put(path, obj);
         return performUpdate(resourceID, value);
@@ -307,12 +344,15 @@ public class TaskScannerJob {
      * @return the updated object
      * @throws JsonResourceException
      */
-    private JsonValue performUpdate(String resourceID, JsonValue value) throws JsonResourceException {
+    private JsonValue performUpdate(String resourceID, JsonValue value) throws ResourceException {
         String id = value.get("_id").required().asString();
         String fullID = retrieveFullID(resourceID, value);
         String rev = value.get("_rev").required().asString();
+        UpdateRequest r = Requests.newUpdateRequest(fullID, value);
+        r.setRevision(rev);
+        ServerContext c = accessor();
 
-        accessor().update(fullID, rev, value);
+        connectionFactory.getConnection().update(c, r);
         return retrieveObject(resourceID, id);
     }
 
@@ -345,7 +385,7 @@ public class TaskScannerJob {
      * @throws JsonResourceException
      */
     private JsonValue retrieveUpdatedObject(String resourceID, JsonValue value)
-            throws JsonValueException, JsonResourceException {
+            throws JsonValueException, ResourceException {
         return retrieveObject(resourceID, value.get("_id").required().asString());
     }
 
@@ -356,12 +396,12 @@ public class TaskScannerJob {
      * @return the object retrieved from the resource
      * @throws JsonResourceException
      */
-    private JsonValue retrieveObject(String resourceID, String id) throws JsonResourceException {
+    private JsonValue retrieveObject(String resourceID, String id) throws ResourceException {
         return performRead(retrieveFullID(resourceID, id));
     }
 
     private void claimAndExecScript(JsonValue input, String expectedStartDateStr)
-            throws ExecutionException, JsonResourceException {
+            throws ExecutionException, ResourceException {
         String id = input.get("_id").required().asString();
         boolean claimedTask = false;
         boolean retryClaimTask = false;
@@ -375,6 +415,7 @@ public class TaskScannerJob {
             try {
                 retryClaimTask = false;
                 _input = updateValueWithObject(resourceID, _input, startField, DATE_UTIL.now());
+                _input = updateValueWithObject(resourceID, _input, completedField, null);
                 logger.debug("Claimed task and updated StartField: {}", _input);
                 claimedTask = true;
             } catch (PreconditionFailedException ex) {
@@ -382,7 +423,7 @@ public class TaskScannerJob {
                     // and check if it's still in a state we want to process the task.
                     _input = retrieveObject(resourceID, id);
                     String currentStartDateStr = _input.get(startField).asString();
-                    String currentCompletedDateStr = _input.get(completedField).asString();
+                    String currentCompletedDateStr = (_input.get(completedField) == null)  ? null : _input.get(completedField).asString();
                     if (currentCompletedDateStr == null && (currentStartDateStr == null || currentStartDateStr.equals(expectedStartDateStr))) {
                         retryClaimTask = true;
                     } else {
@@ -416,15 +457,16 @@ public class TaskScannerJob {
      * @throws JsonResourceException
      */
     private void execScript(JsonValue input)
-            throws ExecutionException, JsonResourceException {
+            throws ExecutionException, ResourceException {
         if (script != null) {
             String resourceID = context.getObjectID();
-            Map<String, Object> scope = newScope();
-            scope.put("input", input.getObject());
-            scope.put("objectID", retrieveFullID(resourceID, input));
 
             try {
-                Object returnedValue = script.exec(scope);
+                Script scope = script.getScript(accessor());
+                scope.put("input", input.getObject());
+                scope.put("objectID", retrieveFullID(resourceID, input));
+
+                Object returnedValue = scope.eval();
                 JsonValue _input = retrieveUpdatedObject(resourceID, input);
                 logger.debug("After script execution: {}", _input);
 
@@ -510,12 +552,8 @@ public class TaskScannerJob {
         }
     }
 
-    private JsonResourceAccessor accessor() {
-        return new JsonResourceAccessor(router, ObjectSetContext.get());
-    }
-
-    private Map<String, Object> newScope() {
-        return scopeFactory.newInstance(ObjectSetContext.get());
+    private ServerContext accessor() throws ResourceException {
+        return new ServerContext(routeService.createServerContext());
     }
 
 }

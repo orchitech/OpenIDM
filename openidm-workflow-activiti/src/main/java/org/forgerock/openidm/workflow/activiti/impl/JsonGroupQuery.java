@@ -23,22 +23,23 @@
  */
 package org.forgerock.openidm.workflow.activiti.impl;
 
+import org.forgerock.openidm.workflow.activiti.ActivitiConstants;
 import org.activiti.engine.identity.Group;
 import org.activiti.engine.impl.GroupQueryImpl;
 import org.activiti.engine.impl.Page;
 import org.activiti.engine.impl.interceptor.CommandContext;
-import org.forgerock.json.fluent.JsonValue;
-import org.forgerock.json.resource.JsonResourceException;
-
 import java.util.ArrayList;
-import java.util.HashMap;
+import java.util.Collection;
 import java.util.List;
+import org.forgerock.json.resource.*;
 
 /**
  * @author $author$
  * @version $Revision$ $Date$
  */
 public class JsonGroupQuery extends GroupQueryImpl {
+
+    static final long serialVersionUID = 1L;
     private final SharedIdentityService identityService;
 
     public JsonGroupQuery(SharedIdentityService identityService) {
@@ -48,53 +49,80 @@ public class JsonGroupQuery extends GroupQueryImpl {
 
     @Override
     public List<Group> executeList(CommandContext commandContext, Page page) {
-        JsonValue params = new JsonValue(new HashMap());
-        if (null == getUserId()) {
-            params.put("_queryId", "query-all-ids");
-        } else {
-            //TODO Find groups for user
-            params.put("_queryId", "query-all-ids");
-        }
+        QueryRequest request = Requests.newQueryRequest(SharedIdentityService.GROUP_PATH);
+        request.setQueryId(ActivitiConstants.QUERY_ALL_IDS);
+        List<Group> groupList = new ArrayList<Group>();
+        QueryResultHandler handler = new QueryResultHandlerImpl(groupList);
         try {
-            JsonValue result = identityService.getAccessor().query("managed/group", params);
-            List<Group> userList = new ArrayList<Group>();
-            for (JsonValue resultItem : result.get("result")) {
-                userList.add(new JsonGroup(identityService.getAccessor().read("managed/group/" + resultItem.get("_id").asString())));
-            }
-            return userList;
-        } catch (JsonResourceException e) {
+            identityService.query(request, handler);
+            return groupList;
+        } catch (ResourceException e) {
             throw new RuntimeException(e);
         }
     }
 
     @Override
     public long executeCount(CommandContext commandContext) {
-        JsonValue params = new JsonValue(new HashMap());
+        QueryRequest request = Requests.newQueryRequest(SharedIdentityService.GROUP_PATH);
         if (null == getId()) {
-            params.put("_queryId", "query-all-ids");
+            request.setQueryId(ActivitiConstants.QUERY_ALL_IDS);
         } else {
-            params.put("_queryId", "find-by-id");
-            params.put("id", getId());
+            request.setQueryId("get-by-field-value");
+            request.setAdditionalParameter("value", getId());
+            request.setAdditionalParameter("field", "id");
         }
+        Collection<Resource> result = new ArrayList<Resource>();
         try {
-            JsonValue result = identityService.getAccessor().query("managed/group", params);
-            return result.get("result").size();
-        } catch (JsonResourceException e) {
+            identityService.query(request, result);
+            return result.size();
+        } catch (ResourceException e) {
             throw new RuntimeException(e);
         }
     }
 
     @Override
     public Group executeSingleResult(CommandContext commandContext) {
-        JsonValue params = new JsonValue(new HashMap());
-        params.put("_queryId", "find-by-id");
-        params.put("id", getId());
+        return readGroup(getId());
+    }
+
+    private Group readGroup(String id) {
+        QueryRequest request = Requests.newQueryRequest(SharedIdentityService.GROUP_PATH);
+        request.setQueryId("get-by-field-value");
+        request.setAdditionalParameter("value", id);
+        request.setAdditionalParameter("field", "id");
+        List<Resource> result = new ArrayList<Resource>();
         try {
-            JsonValue result = identityService.getAccessor().query("managed/group", params);
-            JsonGroup user = new JsonGroup(result.get("result").get(0));
-            return user.isNull() ? null : user;
-        } catch (JsonResourceException e) {
+            identityService.query(request, result);
+            if (result.size() > 0) {
+                JsonGroup group = new JsonGroup(result.get(0).getContent());
+                return group;
+            }
+            return null;
+        } catch (ResourceException e) {
             throw new RuntimeException(e);
+        }
+    }
+
+    private class QueryResultHandlerImpl implements QueryResultHandler {
+
+        private final List<Group> groupList;
+
+        public QueryResultHandlerImpl(List<Group> groupList) {
+            this.groupList = groupList;
+        }
+
+        @Override
+        public void handleError(ResourceException error) {
+            throw new RuntimeException(error);
+        }
+
+        @Override
+        public boolean handleResource(Resource resource) {
+            return groupList.add(readGroup(resource.getContent().get(ActivitiConstants.ID).asString()));
+        }
+
+        @Override
+        public void handleResult(QueryResult result) {
         }
     }
 }

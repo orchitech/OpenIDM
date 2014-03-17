@@ -29,9 +29,8 @@ import java.util.Collections;
 import java.util.List;
 
 import org.forgerock.json.fluent.JsonValue;
-import org.forgerock.openidm.objset.BadRequestException;
-import org.forgerock.openidm.sync.SynchronizationException;
 
+import org.forgerock.json.resource.BadRequestException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -44,6 +43,9 @@ public class ReconTypeById extends ReconTypeBase {
 
     // Defaulting to NOT run target phase
     static final boolean DEFAULT_RUN_TARGET_PHASE = false;
+    
+    // Defaulting to NOT allow empty source set
+    static final boolean DEFAULT_ALLOW_EMPTY_SOURCE_SET = false;
 
     List<String> sourceIds;
 
@@ -51,17 +53,17 @@ public class ReconTypeById extends ReconTypeBase {
     JsonValue targetQuery;
 
     public ReconTypeById(ReconciliationContext reconContext) throws BadRequestException {
-        super(reconContext, DEFAULT_RUN_TARGET_PHASE);
+        super(reconContext, DEFAULT_RUN_TARGET_PHASE, DEFAULT_ALLOW_EMPTY_SOURCE_SET);
 
-        targetQuery = calcEffectiveQuery("targetQuery", 
+        targetQuery = calcEffectiveQuery("targetQuery",
                 reconContext.getObjectMapping().getTargetObjectSet());
-        
+
         JsonValue idsValue = reconContext.getReconParams().get("ids");
         if (idsValue.isNull()) {
             throw new BadRequestException(
                     "Action reconById requires a parameter 'ids' with the identifier(s) to reconcile");
         }
-        
+
         // TODO: allow multiple ids
         sourceIds = new ArrayList();
         String rawIds = idsValue.asString();

@@ -1,5 +1,5 @@
 /*
- * Copyright 2013 ForgeRock, AS.
+ * Copyright 2013-2014 ForgeRock, AS.
  *
  * The contents of this file are subject to the terms of the Common Development and
  * Distribution License (the License). You may not use this file except in compliance with the
@@ -16,8 +16,11 @@
 package org.forgerock.openidm.provisioner.openicf.syncfailure;
 
 import org.forgerock.json.fluent.JsonValue;
-import org.forgerock.json.resource.JsonResourceAccessor;
-import org.forgerock.json.resource.JsonResourceException;
+import org.forgerock.json.resource.ConnectionFactory;
+import org.forgerock.json.resource.CreateRequest;
+import org.forgerock.json.resource.Requests;
+import org.forgerock.json.resource.ResourceException;
+import org.forgerock.json.resource.ServerContext;
 import org.forgerock.openidm.util.Accessor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -37,15 +40,19 @@ public class DeadLetterQueueHandler implements SyncFailureHandler {
     /** Logger */
     private static final Logger logger = LoggerFactory.getLogger(DeadLetterQueueHandler.class);
 
+    private final ConnectionFactory connectionFactory;
+
     /** accessor to the router */
-    private final Accessor<JsonResourceAccessor> accessor;
+    private final Accessor<ServerContext> accessor;
 
     /**
      * Construct this live sync failure handler.
      *
+     * @param connectionFactory
      * @param accessor an accessor to the router
      */
-    public DeadLetterQueueHandler(Accessor<JsonResourceAccessor> accessor) {
+    public DeadLetterQueueHandler(ConnectionFactory connectionFactory, Accessor<ServerContext> accessor) {
+        this.connectionFactory = connectionFactory;
         this.accessor = accessor;
     }
 
@@ -59,19 +66,20 @@ public class DeadLetterQueueHandler implements SyncFailureHandler {
     public void invoke(Map<String, Object> syncFailure, Exception failureCause)
         throws SyncHandlerException {
 
-        String id = new StringBuffer("repo/synchronisation/deadLetterQueue/")
+        final String resourceContainer = new StringBuilder("repo/synchronisation/deadLetterQueue/")
             .append(syncFailure.get("systemIdentifier"))
-            .append("/")
-            .append(syncFailure.get("token").toString())
             .toString();
+        final String resourceId = syncFailure.get("token").toString();
 
         try {
             Map<String,Object> syncDetail = new HashMap<String, Object>(syncFailure);
             syncDetail.put("failureCause", failureCause.toString());
-            accessor.access().create(id, new JsonValue(syncDetail));
+            CreateRequest request = Requests.newCreateRequest(resourceContainer, resourceId, new JsonValue(syncDetail));
+            ServerContext routeContext = accessor.access();
+            connectionFactory.getConnection().create(routeContext, request);
             logger.info("{} saved to dead letter queue", syncFailure.get("uid"));
-        } catch (JsonResourceException e) {
-            throw new SyncHandlerException("Failed reading/writing " + id, e);
+        } catch (ResourceException e) {
+            throw new SyncHandlerException("Failed reading/writing " + resourceContainer + "/" + resourceId, e);
         }
     }
 }

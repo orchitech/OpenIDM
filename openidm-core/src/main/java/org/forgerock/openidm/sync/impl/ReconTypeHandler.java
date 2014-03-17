@@ -26,7 +26,6 @@ package org.forgerock.openidm.sync.impl;
 
 import java.util.List;
 
-import org.forgerock.openidm.sync.SynchronizationException;
 
 /**
  * interface for handling different recon types
@@ -44,9 +43,14 @@ public interface ReconTypeHandler {
      * @throws SynchronizationException
      */
     List<String> queryTargetIds() throws SynchronizationException;
-    
+
     /**
      * @return true if the target phase should be executed for this recon, false if not
      */
     boolean isRunTargetPhase();
+    
+    /**
+     * @return true if the the recon should allow an empty source set, false otherwise.
+     */
+    boolean allowEmptySourceSet();
 }

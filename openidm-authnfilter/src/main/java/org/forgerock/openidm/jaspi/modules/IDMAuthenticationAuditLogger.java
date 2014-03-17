@@ -11,16 +11,26 @@
  * Header, with the fields enclosed by brackets [] replaced by your own identifying
  * information: "Portions copyright [year] [name of copyright owner]".
  *
- * Copyright 2013 ForgeRock Inc.
+ * Copyright 2013-2014 ForgeRock AS.
  */
 
 package org.forgerock.openidm.jaspi.modules;
 
-import org.forgerock.jaspi.container.AuditLogger;
+import org.forgerock.auth.common.AuditRecord;
+import org.forgerock.auth.common.AuthResult;
+import org.forgerock.jaspi.logging.JaspiAuditLogger;
+import org.forgerock.jaspi.runtime.JaspiRuntime;
+import org.forgerock.json.fluent.JsonValue;
+import org.forgerock.json.resource.ConnectionFactory;
+import org.forgerock.json.resource.CreateRequest;
+import org.forgerock.json.resource.Requests;
+import org.forgerock.json.resource.ResourceException;
+import org.forgerock.json.resource.SecurityContext;
+import org.forgerock.json.resource.ServerContext;
+import org.forgerock.json.resource.servlet.SecurityContextFactory;
 import org.forgerock.openidm.audit.util.Status;
 import org.forgerock.openidm.jaspi.config.OSGiAuthnFilterBuilder;
-import org.forgerock.openidm.objset.ObjectSet;
-import org.forgerock.openidm.objset.ObjectSetException;
+import org.forgerock.openidm.router.RouteService;
 import org.forgerock.openidm.util.DateUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -36,7 +46,7 @@ import java.util.Map;
  *
  * @author Phill Cunnington
  */
-public class IDMAuthenticationAuditLogger implements AuditLogger {
+public class IDMAuthenticationAuditLogger implements JaspiAuditLogger {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(IDMAuthenticationAuditLogger.class);
 
@@ -47,15 +57,20 @@ public class IDMAuthenticationAuditLogger implements AuditLogger {
      * {@inheritDoc}
      */
     @Override
-    public void audit(MessageInfo messageInfo) {
+    public void audit(AuditRecord<MessageInfo> auditRecord) {
+
+        MessageInfo messageInfo = auditRecord.getAuditObject();
+
         HttpServletRequest request = (HttpServletRequest) messageInfo.getRequestMessage();
-        Map<String, Object> map = (Map<String, Object>) messageInfo.getMap()
-                .get(IDMServerAuthModule.CONTEXT_REQUEST_KEY);
-        String username = (String) map.get(IDMServerAuthModule.USERNAME_ATTRIBUTE);
-        String userId = (String) map.get(IDMServerAuthModule.USERID_ATTRIBUTE);
-        List<String> roles = (List<String>) map.get(IDMServerAuthModule.ROLES_ATTRIBUTE);
-        boolean status = (Boolean) map.get(IDMServerAuthModule.OPENIDM_AUTH_STATUS);
-        String logClientIPHeader = (String) map.get(LOG_CLIENT_IP_HEADER_KEY);
+        Map<String, Object> messageInfoParams = messageInfo.getMap();
+        Map<String, Object> map = (Map<String, Object>) messageInfoParams.get(JaspiRuntime.ATTRIBUTE_AUTH_CONTEXT);
+
+        String username = (String) messageInfoParams.get(SecurityContextFactory.ATTRIBUTE_AUTHCID);
+        String userId = (String) map.get(SecurityContext.AUTHZID_ID);
+        List<String> roles = (List<String>) map.get(SecurityContext.AUTHZID_ROLES);
+
+        boolean status = AuthResult.SUCCESS.equals(auditRecord.getAuthResult());
+        String logClientIPHeader = (String) messageInfoParams.get(LOG_CLIENT_IP_HEADER_KEY);
         logAuthRequest(request, username, userId, roles, status, logClientIPHeader);
     }
 
@@ -64,8 +79,17 @@ public class IDMAuthenticationAuditLogger implements AuditLogger {
      *
      * @return The instance of the Router.
      */
-    private ObjectSet getRouter() {
+    private RouteService getRouter() {
         return OSGiAuthnFilterBuilder.getRouter();
+    }
+
+    /**
+     * Gets the internal connection facotry for internal routing.
+     *
+     * @return the intstance of the ConnectionFactory
+     */
+    private ConnectionFactory getConnectionFactory() {
+        return OSGiAuthnFilterBuilder.getConnectionFactory();
     }
 
     /**
@@ -81,7 +105,7 @@ public class IDMAuthenticationAuditLogger implements AuditLogger {
     protected void logAuthRequest(HttpServletRequest request, String username, String userId, List<String> roles,
             boolean status, String logClientIPHeader) {
         try {
-            Map<String, Object> entry = new HashMap<String, Object>();
+            JsonValue entry = new JsonValue(new HashMap<String, Object>());
             entry.put("timestamp", DATE_UTIL.now());
             entry.put("action", "authenticate");
             entry.put("status", status ? Status.SUCCESS.toString() : Status.FAILURE.toString());
@@ -100,13 +124,16 @@ public class IDMAuthenticationAuditLogger implements AuditLogger {
             }
             entry.put("ip", ipAddress);
             if (getRouter() != null) {
-                getRouter().create("audit/access", entry);
+                // TODO We need Context!!!
+                CreateRequest createRequest = Requests.newCreateRequest("/audit/access", entry);
+                ServerContext ctx = getRouter().createServerContext();
+                getConnectionFactory().getConnection().create(ctx, createRequest);
             } else {
                 // Filter should have rejected request if router is not available
                 LOGGER.warn("Failed to log entry for {} as router is null.", username);
             }
-        } catch (ObjectSetException ose) {
-            LOGGER.warn("Failed to log entry for {}", username, ose);
+        } catch (ResourceException e) {
+            LOGGER.warn("Failed to log entry for {}", username, e);
         }
     }
 }

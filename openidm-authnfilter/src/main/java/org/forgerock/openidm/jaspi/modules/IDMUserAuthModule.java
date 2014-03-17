@@ -11,7 +11,7 @@
  * Header, with the fields enclosed by brackets [] replaced by your own identifying
  * information: "Portions copyright [year] [name of copyright owner]".
  *
- * Copyright 2013 ForgeRock Inc.
+ * Copyright 2013-2014 ForgeRock Inc.
  */
 
 package org.forgerock.openidm.jaspi.modules;
@@ -19,7 +19,11 @@ package org.forgerock.openidm.jaspi.modules;
 import org.apache.commons.codec.binary.Base64;
 import org.apache.commons.lang3.StringUtils;
 import org.forgerock.json.fluent.JsonValue;
+import org.forgerock.json.resource.ResourceException;
+import org.forgerock.json.resource.ServerContext;
 import org.forgerock.openidm.core.IdentityServer;
+import org.forgerock.openidm.jaspi.config.OSGiAuthnFilterBuilder;
+import org.forgerock.openidm.util.Accessor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -32,6 +36,7 @@ import javax.servlet.ServletRequest;
 import javax.servlet.http.HttpServletRequest;
 import java.security.Principal;
 import java.security.cert.X509Certificate;
+import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -54,6 +59,8 @@ public abstract class IDMUserAuthModule extends IDMServerAuthModule {
 
     private AuthHelper authHelper;
 
+    private Accessor<ServerContext> accessor;
+
     /**
      * Constructor used by the commons Authentication Filter framework to create an instance of this authentication
      * module.
@@ -61,6 +68,15 @@ public abstract class IDMUserAuthModule extends IDMServerAuthModule {
     public IDMUserAuthModule(String queryId, String queryOnResource) {
         this.queryId = queryId;
         this.queryOnResource = queryOnResource;
+        this.accessor = new Accessor<ServerContext>() {
+            public ServerContext access() {
+                try {
+                    return OSGiAuthnFilterBuilder.getRouter().createServerContext();
+                } catch (ResourceException e) {
+                    throw new IllegalStateException("Router context unvailable", e);
+                }
+            }
+        };
     }
 
     /**
@@ -68,10 +84,11 @@ public abstract class IDMUserAuthModule extends IDMServerAuthModule {
      *
      * @param authHelper A mock of an AuthHelper instance.
      */
-    public IDMUserAuthModule(AuthHelper authHelper, String queryId, String queryOnResource) {
-        this.authHelper = authHelper;
+    public IDMUserAuthModule(AuthHelper authHelper, Accessor<ServerContext> accessor, String queryId, String queryOnResource) {
         this.queryId = queryId;
         this.queryOnResource = queryOnResource;
+        this.authHelper = authHelper;
+        this.accessor = accessor;
     }
 
     /**
@@ -101,7 +118,10 @@ public abstract class IDMUserAuthModule extends IDMServerAuthModule {
         String userRolesProperty = properties.get("userRoles").asString();
         List<String> defaultRoles = options.get("defaultUserRoles").asList(String.class);
 
-        authHelper = new AuthHelper(userIdProperty, userCredentialProperty, userRolesProperty, defaultRoles);
+        authHelper = new AuthHelper(
+                OSGiAuthnFilterBuilder.getCryptoService(),
+                OSGiAuthnFilterBuilder.getConnectionFactory(),
+                userIdProperty, userCredentialProperty, userRolesProperty, defaultRoles);
     }
 
     /**
@@ -111,12 +131,12 @@ public abstract class IDMUserAuthModule extends IDMServerAuthModule {
      * @param messageInfo {@inheritDoc}
      * @param clientSubject {@inheritDoc}
      * @param serviceSubject {@inheritDoc}
-     * @param authData {@inheritDoc}
+     * @param securityContextMapper {@inheritDoc}
      * @return {@inheritDoc}
      */
     @Override
     protected AuthStatus validateRequest(MessageInfo messageInfo, Subject clientSubject, Subject serviceSubject,
-            AuthData authData) {
+            SecurityContextMapper securityContextMapper) {
 
         HttpServletRequest req = (HttpServletRequest) messageInfo.getRequestMessage();
         boolean authenticated;
@@ -125,26 +145,25 @@ public abstract class IDMUserAuthModule extends IDMServerAuthModule {
         String basicAuth = req.getHeader("Authorization");
         // if we see the certificate port this request is for client auth only
         if (allowClientCertOnly(req)) {
-            authenticated = authenticateUsingClientCert(req, authData);
+            authenticated = authenticateUsingClientCert(req, securityContextMapper);
             //Auth success will be logged in IDMServerAuthModule super type.
         } else if (headerLogin != null) {
-            authenticated = authenticateUser(req, authData);
+            authenticated = authenticateUser(req, securityContextMapper);
             //Auth success will be logged in IDMServerAuthModule super type.
         } else if (basicAuth != null) {
-            authenticated = authenticateUsingBasicAuth(basicAuth, authData);
+            authenticated = authenticateUsingBasicAuth(basicAuth, securityContextMapper);
             //Auth success will be logged in IDMServerAuthModule super type.
         } else {
             //Auth failure will be logged in IDMServerAuthModule super type.
             return AuthStatus.SEND_FAILURE;
         }
-        authData.setResource(queryOnResource);
-        logger.debug("Found valid session for {} id {} with roles {}", authData.getUsername(), authData.getUserId(),
-                authData.getRoles());
-
+        securityContextMapper.setResource(queryOnResource);
+        
+        final String authcid = securityContextMapper.getAuthcid();
         if (authenticated) {
             clientSubject.getPrincipals().add(new Principal() {
                 public String getName() {
-                    return headerLogin;
+                    return authcid;
                 }
             });
         }
@@ -167,32 +186,32 @@ public abstract class IDMUserAuthModule extends IDMServerAuthModule {
      * Authenticates the request using the client certificate from the request.
      *
      * @param request The ServletRequest.
-     * @param authData The AuthData object.
      */
     // This is currently Jetty specific
-    private boolean authenticateUsingClientCert(ServletRequest request, AuthData authData) {
+    private boolean authenticateUsingClientCert(ServletRequest request, SecurityContextMapper securityContextMapper) {
 
         logger.debug("Client certificate authentication request");
         X509Certificate[] certs = getClientCerts(request);
 
         if (certs != null) {
-            Principal existingPrincipal = null;
-            if (request instanceof HttpServletRequest) {
-                ((HttpServletRequest) request).getUserPrincipal();
-            }
+            Principal existingPrincipal = request instanceof HttpServletRequest ?
+                    ((HttpServletRequest) request).getUserPrincipal() : null;
             logger.debug("Request {} existing Principal {} has {} certificates", request, existingPrincipal,
                     certs.length);
             for (X509Certificate cert : certs) {
                 logger.debug("Request {} client certificate subject DN: {}", request, cert.getSubjectDN());
             }
         }
-        if (certs == null || certs.length == 0 || certs[0] == null) {
+        String username = certs[0].getSubjectDN().getName();
+        if (certs == null || certs.length < 1 || certs[0] == null) {
             return false;
         }
-        authData.setUsername(certs[0].getSubjectDN().getName());
-        authData.setUserId(authData.getUsername());
-        authData.getRoles().add("openidm-cert");
-        logger.debug("Authentication client certificate subject {}", authData.getUsername());
+        List<String> roles = new ArrayList<String>(1);
+        roles.add("openidm-cert");
+        securityContextMapper.setRoles(roles);
+        securityContextMapper.setUsername(username);
+        securityContextMapper.setUserId(username);
+        logger.debug("Authentication client certificate subject {}", username);
         return true;
     }
 
@@ -218,9 +237,8 @@ public abstract class IDMUserAuthModule extends IDMServerAuthModule {
      * Authenticates the request.
      *
      * @param request The HttpServletRequest.
-     * @param authData The AuthData object.
      */
-    private boolean authenticateUser(HttpServletRequest request, AuthData authData) {
+    private boolean authenticateUser(HttpServletRequest request, SecurityContextMapper securityContextMapper) {
 
         logger.debug("No session, authenticating user");
         String username = request.getHeader(HEADER_USERNAME);
@@ -229,17 +247,21 @@ public abstract class IDMUserAuthModule extends IDMServerAuthModule {
             logger.debug("Failed authentication, missing or empty headers");
             return false;
         }
-        authData.setUsername(username);
-        return authHelper.authenticate(queryId, queryOnResource, username, password, authData);
+        securityContextMapper.setUsername(username);
+        try {
+            return authHelper.authenticate(queryId, queryOnResource, username, password, securityContextMapper, accessor.access());
+        } catch (IllegalStateException e) {
+            logger.error(e.getMessage(), e);
+            return false;
+        }
     }
 
     /**
      * Authenticates the request using the contents of the Http Authorization Header.
      *
      * @param authorizationHeader The Http Authorization Header value.
-     * @param authData The AuthData object.
      */
-    private boolean authenticateUsingBasicAuth(String authorizationHeader, AuthData authData) {
+    private boolean authenticateUsingBasicAuth(String authorizationHeader, SecurityContextMapper securityContextMapper) {
         logger.debug("HTTP basic authentication request");
         StringTokenizer st = new StringTokenizer(authorizationHeader);
         String isBasic = st.nextToken();
@@ -255,8 +277,14 @@ public abstract class IDMUserAuthModule extends IDMServerAuthModule {
         if (t.length != 2) {
             return false;
         }
-        authData.setUsername(t[0]);
-        return authHelper.authenticate(queryId, queryOnResource, t[0], t[1], authData);
+        securityContextMapper.setUsername(t[0]);
+
+        try {
+            return authHelper.authenticate(queryId, queryOnResource, t[0], t[1], securityContextMapper, accessor.access());
+        } catch (IllegalStateException e) {
+            logger.error(e.getMessage(), e);
+            return false;
+        }
     }
 
     /**

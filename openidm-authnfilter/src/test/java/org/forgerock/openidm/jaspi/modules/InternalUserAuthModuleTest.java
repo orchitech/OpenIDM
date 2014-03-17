@@ -1,21 +1,24 @@
 /*
- * The contents of this file are subject to the terms of the Common Development and
- * Distribution License (the License). You may not use this file except in compliance with the
- * License.
- *
- * You can obtain a copy of the License at legal/CDDLv1.0.txt. See the License for the
- * specific language governing permission and limitations under the License.
- *
- * When distributing Covered Software, include this CDDL Header Notice in each file and include
- * the License file at legal/CDDLv1.0.txt. If applicable, add the following below the CDDL
- * Header, with the fields enclosed by brackets [] replaced by your own identifying
- * information: "Portions copyright [year] [name of copyright owner]".
- *
- * Copyright 2013 ForgeRock Inc.
- */
+* The contents of this file are subject to the terms of the Common Development and
+* Distribution License (the License). You may not use this file except in compliance with the
+* License.
+*
+* You can obtain a copy of the License at legal/CDDLv1.0.txt. See the License for the
+* specific language governing permission and limitations under the License.
+*
+* When distributing Covered Software, include this CDDL Header Notice in each file and include
+* the License file at legal/CDDLv1.0.txt. If applicable, add the following below the CDDL
+* Header, with the fields enclosed by brackets [] replaced by your own identifying
+* information: "Portions copyright [year] [name of copyright owner]".
+*
+* Copyright 2013 ForgeRock AS.
+*/
 
 package org.forgerock.openidm.jaspi.modules;
 
+import org.forgerock.json.resource.ResourceException;
+import org.forgerock.json.resource.ServerContext;
+import org.forgerock.openidm.util.Accessor;
 import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
 
@@ -25,7 +28,6 @@ import javax.security.auth.message.AuthStatus;
 import javax.security.auth.message.MessageInfo;
 import javax.servlet.http.HttpServletRequest;
 
-import java.util.HashMap;
 import java.util.Map;
 
 import static org.mockito.BDDMockito.given;
@@ -33,20 +35,28 @@ import static org.mockito.Mockito.*;
 import static org.testng.Assert.assertEquals;
 
 /**
- * @author Phill Cunnington
- */
+* @author Phill Cunnington
+*/
 public class InternalUserAuthModuleTest {
 
     private InternalUserAuthModule internalUserAuthModule;
 
     private AuthHelper authHelper;
 
+    private ServerContext context;
+
     @BeforeMethod
     public void setUp() {
 
+        context = mock(ServerContext.class);
         authHelper = mock(AuthHelper.class);
-
-        internalUserAuthModule = new InternalUserAuthModule(authHelper);
+        internalUserAuthModule = new InternalUserAuthModule(authHelper,
+                new Accessor<ServerContext>() {
+                    @Override
+                    public ServerContext access() {
+                        return context;
+                    }
+                });
     }
 
     @Test
@@ -56,7 +66,7 @@ public class InternalUserAuthModuleTest {
         MessageInfo messageInfo = mock(MessageInfo.class);
         Subject clientSubject = new Subject();
         Subject serviceSubject = new Subject();
-        AuthData authData = mock(AuthData.class);
+        SecurityContextMapper securityContextMapper = mock(SecurityContextMapper.class);
 
         HttpServletRequest request = mock(HttpServletRequest.class);
 
@@ -66,11 +76,11 @@ public class InternalUserAuthModuleTest {
 
         //When
         AuthStatus authStatus = internalUserAuthModule.validateRequest(messageInfo, clientSubject, serviceSubject,
-                authData);
+                securityContextMapper);
 
         //Then
         verifyZeroInteractions(authHelper);
-        verifyZeroInteractions(authData);
+        verifyZeroInteractions(securityContextMapper);
         assertEquals(authStatus, AuthStatus.SEND_FAILURE);
     }
 
@@ -81,7 +91,7 @@ public class InternalUserAuthModuleTest {
         MessageInfo messageInfo = mock(MessageInfo.class);
         Subject clientSubject = new Subject();
         Subject serviceSubject = new Subject();
-        AuthData authData = mock(AuthData.class);
+        SecurityContextMapper securityContextMapper = mock(SecurityContextMapper.class);
 
         HttpServletRequest request = mock(HttpServletRequest.class);
 
@@ -91,11 +101,11 @@ public class InternalUserAuthModuleTest {
 
         //When
         AuthStatus authStatus = internalUserAuthModule.validateRequest(messageInfo, clientSubject, serviceSubject,
-                authData);
+                securityContextMapper);
 
         //Then
         verifyZeroInteractions(authHelper);
-        verify(authData).setResource("internal/user");
+        verify(securityContextMapper).setResource("internal/user");
         assertEquals(authStatus, AuthStatus.SEND_FAILURE);
     }
 
@@ -106,7 +116,7 @@ public class InternalUserAuthModuleTest {
         MessageInfo messageInfo = mock(MessageInfo.class);
         Subject clientSubject = new Subject();
         Subject serviceSubject = new Subject();
-        AuthData authData = mock(AuthData.class);
+        SecurityContextMapper securityContextMapper = mock(SecurityContextMapper.class);
 
         HttpServletRequest request = mock(HttpServletRequest.class);
 
@@ -116,11 +126,11 @@ public class InternalUserAuthModuleTest {
 
         //When
         AuthStatus authStatus = internalUserAuthModule.validateRequest(messageInfo, clientSubject, serviceSubject,
-                authData);
+                securityContextMapper);
 
         //Then
         verifyZeroInteractions(authHelper);
-        verify(authData).setResource("internal/user");
+        verify(securityContextMapper).setResource("internal/user");
         assertEquals(authStatus, AuthStatus.SEND_FAILURE);
     }
 
@@ -131,7 +141,7 @@ public class InternalUserAuthModuleTest {
         MessageInfo messageInfo = mock(MessageInfo.class);
         Subject clientSubject = new Subject();
         Subject serviceSubject = new Subject();
-        AuthData authData = mock(AuthData.class);
+        SecurityContextMapper securityContextMapper = mock(SecurityContextMapper.class);
 
         HttpServletRequest request = mock(HttpServletRequest.class);
 
@@ -141,11 +151,11 @@ public class InternalUserAuthModuleTest {
 
         //When
         AuthStatus authStatus = internalUserAuthModule.validateRequest(messageInfo, clientSubject, serviceSubject,
-                authData);
+                securityContextMapper);
 
         //Then
         verifyZeroInteractions(authHelper);
-        verify(authData).setResource("internal/user");
+        verify(securityContextMapper).setResource("internal/user");
         assertEquals(authStatus, AuthStatus.SEND_FAILURE);
     }
 
@@ -156,7 +166,7 @@ public class InternalUserAuthModuleTest {
         MessageInfo messageInfo = mock(MessageInfo.class);
         Subject clientSubject = new Subject();
         Subject serviceSubject = new Subject();
-        AuthData authData = mock(AuthData.class);
+        SecurityContextMapper securityContextMapper = mock(SecurityContextMapper.class);
 
         HttpServletRequest request = mock(HttpServletRequest.class);
 
@@ -164,16 +174,17 @@ public class InternalUserAuthModuleTest {
         given(request.getHeader("X-OpenIDM-Username")).willReturn("USERNAME");
         given(request.getHeader("X-OpenIDM-Password")).willReturn("PASSWORD");
 
-        given(authHelper.authenticate("credential-internaluser-query", "internal/user", "USERNAME", "PASSWORD",
-                authData)).willReturn(true);
+        given(authHelper.authenticate(
+                    "credential-internaluser-query", "internal/user", "USERNAME", "PASSWORD", securityContextMapper, context))
+            .willReturn(true);
 
         //When
         AuthStatus authStatus = internalUserAuthModule.validateRequest(messageInfo, clientSubject, serviceSubject,
-                authData);
+                securityContextMapper);
 
         //Then
-        verify(authData).setUsername("USERNAME");
-        verify(authData).setResource("internal/user");
+        verify(securityContextMapper).setUsername("USERNAME");
+        verify(securityContextMapper).setResource("internal/user");
         assertEquals(authStatus, AuthStatus.SUCCESS);
     }
 
@@ -184,7 +195,7 @@ public class InternalUserAuthModuleTest {
         MessageInfo messageInfo = mock(MessageInfo.class);
         Subject clientSubject = new Subject();
         Subject serviceSubject = new Subject();
-        AuthData authData = mock(AuthData.class);
+        SecurityContextMapper securityContextMapper = mock(SecurityContextMapper.class);
 
         HttpServletRequest request = mock(HttpServletRequest.class);
 
@@ -192,16 +203,17 @@ public class InternalUserAuthModuleTest {
         given(request.getHeader("X-OpenIDM-Username")).willReturn("USERNAME");
         given(request.getHeader("X-OpenIDM-Password")).willReturn("PASSWORD");
 
-        given(authHelper.authenticate("credential-internaluser-query", "internal/user", "USERNAME", "PASSWORD",
-                authData)).willReturn(false);
+        given(authHelper.authenticate(
+                    "credential-internaluser-query", "internal/user", "USERNAME", "PASSWORD", securityContextMapper, context))
+            .willReturn(false);
 
         //When
         AuthStatus authStatus = internalUserAuthModule.validateRequest(messageInfo, clientSubject, serviceSubject,
-                authData);
+                securityContextMapper);
 
         //Then
-        verify(authData).setUsername("USERNAME");
-        verify(authData).setResource("internal/user");
+        verify(securityContextMapper).setUsername("USERNAME");
+        verify(securityContextMapper).setResource("internal/user");
         assertEquals(authStatus, AuthStatus.SEND_FAILURE);
     }
 
@@ -210,10 +222,8 @@ public class InternalUserAuthModuleTest {
 
         //Given
         MessageInfo messageInfo = mock(MessageInfo.class);
-        Map<String, Object> messageInfoMap = new HashMap<String, Object>();
-        Map<String, Object> contextMap = new HashMap<String, Object>();
+        Map<String, Object> messageInfoMap = mock(Map.class);
         Subject serviceSubject = new Subject();
-        messageInfoMap.put(IDMServerAuthModule.CONTEXT_REQUEST_KEY, contextMap);
 
         HttpServletRequest request = mock(HttpServletRequest.class);
 
@@ -226,7 +236,8 @@ public class InternalUserAuthModuleTest {
 
         //Then
         assertEquals(authStatus, AuthStatus.SEND_SUCCESS);
-        assertEquals(messageInfoMap.get("skipSession"), true);
+        verify(messageInfo).getMap();
+        verify(messageInfoMap).put("skipSession", true);
     }
 
     @Test
@@ -234,10 +245,8 @@ public class InternalUserAuthModuleTest {
 
         //Given
         MessageInfo messageInfo = mock(MessageInfo.class);
-        Map<String, Object> messageInfoMap = new HashMap<String, Object>();
-        Map<String, Object> contextMap = new HashMap<String, Object>();
+        Map<String, Object> messageInfoMap = mock(Map.class);
         Subject serviceSubject = new Subject();
-        messageInfoMap.put(IDMServerAuthModule.CONTEXT_REQUEST_KEY, contextMap);
 
         HttpServletRequest request = mock(HttpServletRequest.class);
 
@@ -250,5 +259,6 @@ public class InternalUserAuthModuleTest {
 
         //Then
         assertEquals(authStatus, AuthStatus.SEND_SUCCESS);
+        verify(messageInfo, never()).getMap();
     }
 }

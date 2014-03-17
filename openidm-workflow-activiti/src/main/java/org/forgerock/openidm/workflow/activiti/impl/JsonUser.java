@@ -25,8 +25,8 @@ package org.forgerock.openidm.workflow.activiti.impl;
 
 import org.activiti.engine.identity.User;
 import org.forgerock.json.fluent.JsonValue;
-
 import java.util.HashMap;
+import org.forgerock.openidm.crypto.CryptoService;
 
 import static org.forgerock.openidm.workflow.activiti.impl.SharedIdentityService.*;
 
@@ -35,17 +35,25 @@ import static org.forgerock.openidm.workflow.activiti.impl.SharedIdentityService
  * @version $Revision$ $Date$
  */
 public class JsonUser extends JsonValue implements User {
+    static final long serialVersionUID = 1L;
+    private CryptoService cryptoService;
 
     /**
      * Constructs a JsonUser value object with a given userId.
      *
+     * @param service OpenIDM CryptoService used for password decryption
      * @param userId the Java object representing JSON value.
      */
-    public JsonUser(String userId) {
+    public JsonUser(CryptoService service, String userId) {
         super(new HashMap());
+        this.cryptoService = service;
         put(SCIM_USERNAME, userId);
     }
 
+    public void setCryptoService(CryptoService cryptoService) {
+        this.cryptoService = cryptoService;
+    }
+    
     public JsonUser(JsonValue value) {
         super(value);
     }
@@ -93,7 +101,9 @@ public class JsonUser extends JsonValue implements User {
     }
 
     public String getPassword() {
-        return get(SCIM_PASSWORD).asString();
+        JsonValue password = get(SCIM_PASSWORD);
+        JsonValue decryptedPassword = cryptoService.decrypt(password);
+        return decryptedPassword.asString();
     }
 
     public void setPassword(String password) {

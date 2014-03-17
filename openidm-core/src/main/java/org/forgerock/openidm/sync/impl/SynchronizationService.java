@@ -1,7 +1,7 @@
 /**
 * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS HEADER.
 *
-* Copyright (c) 2011-2013 ForgeRock AS. All Rights Reserved
+* Copyright (c) 2011-2014 ForgeRock AS. All Rights Reserved
 *
 * The contents of this file are subject to the terms
 * of the Common Development and Distribution License
@@ -38,27 +38,29 @@ import org.apache.felix.scr.annotations.Modified;
 import org.apache.felix.scr.annotations.Properties;
 import org.apache.felix.scr.annotations.Property;
 import org.apache.felix.scr.annotations.Reference;
-import org.apache.felix.scr.annotations.ReferenceCardinality;
 import org.apache.felix.scr.annotations.ReferencePolicy;
 import org.apache.felix.scr.annotations.Service;
 import org.forgerock.json.fluent.JsonPointer;
 import org.forgerock.json.fluent.JsonValue;
 import org.forgerock.json.fluent.JsonValueException;
-import org.forgerock.json.resource.JsonResource;
-import org.forgerock.json.resource.JsonResourceContext;
-import org.forgerock.openidm.config.JSONEnhancedConfig;
-import org.forgerock.openidm.objset.ConflictException;
-import org.forgerock.openidm.objset.JsonResourceObjectSet;
-import org.forgerock.openidm.objset.NotFoundException;
-import org.forgerock.openidm.objset.ObjectSet;
-import org.forgerock.openidm.objset.ObjectSetContext;
-import org.forgerock.openidm.objset.ObjectSetException;
-import org.forgerock.openidm.objset.ObjectSetJsonResource;
+import org.forgerock.json.resource.ActionRequest;
+import org.forgerock.json.resource.ConflictException;
+import org.forgerock.json.resource.ConnectionFactory;
+import org.forgerock.json.resource.PatchRequest;
+import org.forgerock.json.resource.ReadRequest;
+import org.forgerock.json.resource.Resource;
+import org.forgerock.json.resource.ResourceException;
+import org.forgerock.json.resource.ResultHandler;
+import org.forgerock.json.resource.ServerContext;
+import org.forgerock.json.resource.SingletonResourceProvider;
+import org.forgerock.json.resource.UpdateRequest;
+import org.forgerock.openidm.config.enhanced.JSONEnhancedConfig;
+import org.forgerock.openidm.core.ServerConstants;
 import org.forgerock.openidm.quartz.impl.ExecutionException;
 import org.forgerock.openidm.quartz.impl.ScheduledService;
-import org.forgerock.openidm.scope.ScopeFactory;
-import org.forgerock.openidm.sync.SynchronizationException;
-import org.forgerock.openidm.sync.SynchronizationListener;
+import org.forgerock.openidm.router.RouteService;
+import org.forgerock.openidm.util.ResourceUtil;
+import org.forgerock.script.ScriptRegistry;
 import org.osgi.service.component.ComponentContext;
 import org.osgi.service.component.ComponentException;
 import org.slf4j.Logger;
@@ -78,16 +80,19 @@ import org.slf4j.LoggerFactory;
 @Properties({
     @Property(name = "service.description", value = "OpenIDM object synchronization service"),
     @Property(name = "service.vendor", value = "ForgeRock AS"),
-    @Property(name = "openidm.router.prefix", value = "sync")
+    @Property(name = "openidm.router.prefix", value = "/sync/*")
 })
 @Service
-public class SynchronizationService extends ObjectSetJsonResource
-// TODO: Deprecate these interfaces:
- implements SynchronizationListener, ScheduledService, Mappings {
+public class SynchronizationService implements SingletonResourceProvider, Mappings, ScheduledService {
 
     /** TODO: Description. */
     private enum Action {
-        onCreate, onUpdate, onDelete, recon, performAction
+        onCreate, onUpdate, onDelete, recon, performAction;
+
+        public static Action fromString(String value) {
+            // use JsonValue .asEnum as it does cool case-insensitive tricks
+            return new JsonValue(value).asEnum(Action.class);
+        }
     }
 
     /** TODO: Description. */
@@ -95,51 +100,40 @@ public class SynchronizationService extends ObjectSetJsonResource
 
     /** Object mappings. Order of mappings evaluated during synchronization is significant. */
     private volatile ArrayList<ObjectMapping> mappings = null;
-    
-    /** TODO: Description. */
-    private ComponentContext context;
+
+    /** The Connection Factory */
+    @Reference(policy = ReferencePolicy.STATIC, target="(service.pid=org.forgerock.openidm.internal)")
+    protected ConnectionFactory connectionFactory;
+
+    public ConnectionFactory getConnectionFactory() {
+        return connectionFactory;
+    }
 
     @Reference
     Reconcile reconService;
 
-    /** Object set router service. */
+    /** Script Registry service. */
     @Reference(
-        name = "ref_SynchronizationService_JsonResourceRouterService",
-        referenceInterface = JsonResource.class,
-        bind = "bindRouter",
-        unbind = "unbindRouter",
-        cardinality = ReferenceCardinality.MANDATORY_UNARY,
-        policy = ReferencePolicy.DYNAMIC,
-        target = "(service.pid=org.forgerock.openidm.router)"
+            policy = ReferencePolicy.DYNAMIC,
+            bind = "bindScriptRegistry",
+            unbind = "unbindScriptRegistry"
     )
-    private ObjectSet router;
-    protected void bindRouter(JsonResource router) {
-        this.router = new JsonResourceObjectSet(router);
-    }
-    protected void unbindRouter(JsonResource router) {
-        this.router = null;
+    ScriptRegistry scriptRegistry;
+    
+    @Reference(target = "("+ServerConstants.ROUTER_PREFIX + "=/*)")
+    RouteService routeService;
+
+    protected void bindScriptRegistry(final ScriptRegistry service) {
+        scriptRegistry = service;
+        Scripts.init(service);
     }
 
-    /** Scope factory service. */
-    @Reference(
-        name = "ref_SynchronizationService_ScopeFactory",
-        referenceInterface = ScopeFactory.class,
-        bind = "bindScopeFactory",
-        unbind = "unbindScopeFactory",
-        cardinality = ReferenceCardinality.MANDATORY_UNARY,
-        policy = ReferencePolicy.DYNAMIC
-    )
-    private ScopeFactory scopeFactory;
-    protected void bindScopeFactory(ScopeFactory scopeFactory) {
-        this.scopeFactory = scopeFactory;
-    }
-    protected void unbindScopeFactory(ScopeFactory scopeFactory) {
-        this.scopeFactory = null;
+    protected void unbindScriptRegistry(final ScriptRegistry service) {
+        scriptRegistry = null;
     }
 
     @Activate
     protected void activate(ComponentContext context) {
-        this.context = context;
         JsonValue config = new JsonValue(new JSONEnhancedConfig().getConfiguration(context));
         try {
             mappings = new ArrayList<ObjectMapping>();
@@ -152,12 +146,10 @@ public class SynchronizationService extends ObjectSetJsonResource
     @Deactivate
     protected void deactivate(ComponentContext context) {
         mappings = null;
-        this.context = null;
     }
-    
+
     @Modified
     protected void modified(ComponentContext context) {
-        this.context = context;
         JsonValue config = new JsonValue(new JSONEnhancedConfig().getConfiguration(context));
         ArrayList<ObjectMapping> newMappings = new ArrayList<ObjectMapping>();
         try {
@@ -176,13 +168,13 @@ public class SynchronizationService extends ObjectSetJsonResource
             mapping.initRelationships(this, mappingList);
         }
     }
-    
+
     /**
      * TODO: Description.
      *
      * @param name TODO.
      * @return TODO.
-     * @throws org.forgerock.openidm.sync.SynchronizationException
+     * @throws SynchronizationException
      */
     public ObjectMapping getMapping(String name) throws SynchronizationException {
         for (ObjectMapping mapping : mappings) {
@@ -210,11 +202,8 @@ public class SynchronizationService extends ObjectSetJsonResource
      * @throws SynchronizationException TODO.
      * @return
      */
-    ObjectSet getRouter() throws SynchronizationException {
-        if (router == null) {
-            throw new SynchronizationException("Not bound to internal router");
-        }
-        return router;
+    ServerContext getRouter() throws SynchronizationException {
+        return ObjectSetContext.get();
     }
 
     /**
@@ -223,13 +212,13 @@ public class SynchronizationService extends ObjectSetJsonResource
      * @return TODO.
      */
     Map<String, Object> newScope() {
-        return scopeFactory.newInstance(ObjectSetContext.get());
+        return new HashMap<String, Object>();
     }
 
     /**
      * @deprecated Use {@code sync} resource interface.
      */
-    @Override // SynchronizationListener
+    // SynchronizationListener
     @Deprecated // use resource interface
     public void onCreate(String id, JsonValue object) throws SynchronizationException {
         PendingLink.handlePendingLinks(mappings, id, object);
@@ -243,7 +232,7 @@ public class SynchronizationService extends ObjectSetJsonResource
     /**
      * @deprecated Use {@code sync} resource interface.
      */
-    @Override // SynchronizationListener
+    // SynchronizationListener
     @Deprecated // use resource interface
     public void onUpdate(String id, JsonValue oldValue, JsonValue newValue) throws SynchronizationException {
         for (ObjectMapping mapping : mappings) {
@@ -256,7 +245,7 @@ public class SynchronizationService extends ObjectSetJsonResource
     /**
      * @deprecated Use {@code sync} resource interface.
      */
-    @Override // SynchronizationListener
+    // SynchronizationListener
     @Deprecated // use resource interface
     public void onDelete(String id, JsonValue oldValue) throws SynchronizationException {
         for (ObjectMapping mapping : mappings) {
@@ -270,13 +259,8 @@ public class SynchronizationService extends ObjectSetJsonResource
      * @deprecated Use {@code sync} resource interface.
      */
     @Deprecated
-    private JsonValue newFauxContext(JsonValue mapping) {
-        JsonValue context = JsonResourceContext.newContext("resource", ObjectSetContext.get());
-        context.put("method", "action");
-        context.put("id", "sync");
-        HashMap<String, Object> params = new HashMap<String, Object>();
-        params.put("mapping", mapping == null ? null : mapping.getObject());
-        context.put("params", params);
+    private ServerContext newFauxContext(JsonValue mapping) throws ResourceException {
+        ServerContext context = new ServerContext(/*"sync",*/ routeService.createServerContext());
         return context;
     }
 
@@ -289,29 +273,31 @@ public class SynchronizationService extends ObjectSetJsonResource
         try {
             JsonValue params = new JsonValue(context).get(CONFIGURED_INVOKE_CONTEXT);
             String action = params.get("action").asString();
-            
+
             // "reconcile" in schedule config is the legacy equivalent of the action "recon"
-            if ("reconcile".equals(action) 
-                    || ReconciliationService.ReconAction.isReconAction(action)) { 
+            if ("reconcile".equals(action)
+                    || ReconciliationService.ReconAction.isReconAction(action)) {
                 JsonValue mapping = params.get("mapping");
                 ObjectSetContext.push(newFauxContext(mapping));
-                
+
                 // Legacy support for spelling recon action as reconcile
                 if ("reconcile".equals(action)) {
                     params.put("_action", ReconciliationService.ReconAction.recon.toString());
                 } else {
                     params.put("_action", action);
                 }
-                
+
                 try {
-                    reconService.reconcile(mapping, Boolean.TRUE, params);
+                    reconService.reconcile(ReconciliationService.ReconAction.recon, mapping, Boolean.TRUE, params, null);
                 } finally {
                     ObjectSetContext.pop();
                 }
             } else {
-                throw new ExecutionException("Action '" + action + 
+                throw new ExecutionException("Action '" + action +
                         "' configured in schedule not supported.");
             }
+        } catch (ResourceException re) {
+            throw new ExecutionException(re);
         } catch (JsonValueException jve) {
             throw new ExecutionException(jve);
         } catch (SynchronizationException se) {
@@ -319,60 +305,73 @@ public class SynchronizationService extends ObjectSetJsonResource
         }
     }
 
-    /**
-     *
-     * @deprecated Use the discovery engine.
-     */
-    private void performAction(JsonValue params) throws SynchronizationException {
-        ObjectMapping mapping = getMapping(params.get("mapping").required().asString());
-        mapping.performAction(params);
+    @Override
+    public void actionInstance(ServerContext context, ActionRequest request,
+            ResultHandler<JsonValue> handler) {
+        try {
+            ObjectSetContext.push(context);
+            Map<String, Object> result = null;
+            JsonValue _params = new JsonValue(request.getAdditionalParameters(), new JsonPointer("params"));
+            Action action = new JsonValue(request.getAction()).asEnum(Action.class);
+            try {
+                String id = null;
+                switch (action) {
+                    case onCreate:
+                        id = _params.get("id").required().asString();
+                        logger.debug("Synchronization action=onCreate, id={}", id);
+                        onCreate(id, request.getContent());
+                        break;
+                    case onUpdate:
+                        id = _params.get("id").required().asString();
+                        logger.debug("Synchronization action=onUpdate, id={}", id);
+                        onUpdate(id, null, request.getContent());
+                        break;
+                    case onDelete:
+                        id = _params.get("id").required().asString();
+                        logger.debug("Synchronization action=onDelete, id={}", id);
+                        onDelete(id, null);
+                        break;
+                    case recon:
+                        result = new HashMap<String, Object>();
+                        JsonValue mapping = _params.get("mapping").required();
+                        logger.debug("Synchronization action=recon, mapping={}", mapping);
+                        String reconId = reconService.reconcile(ReconciliationService.ReconAction.recon, mapping, Boolean.TRUE, _params, request.getContent());
+                        result.put("reconId", reconId);
+                        result.put("_id", reconId);
+                        result.put("comment1", "Deprecated API on sync service. Call recon action on recon service instead.");
+                        result.put("comment2", "Deprecated return property reconId, use _id instead.");
+                        break;
+                    case performAction:
+                        logger.debug("Synchronization action=performAction, params={}", _params);
+                        ObjectMapping objectMapping = getMapping(_params.get("mapping").required().asString());
+                        objectMapping.performAction(_params);
+                        result = new HashMap<String, Object>();
+                        //result.put("status", performAction(_params));
+                        break;
+                }
+            } catch (SynchronizationException se) {
+                throw new ConflictException(se);
+            }
+            handler.handleResult(new JsonValue(result));
+        } catch (Throwable t) {
+            handler.handleError(ResourceUtil.adapt(t));
+        } finally {
+            ObjectSetContext.pop();
+        }
     }
 
-    @Override // ObjectSetJsonResource
-    public Map<String, Object> action(String id, Map<String, Object> params) throws ObjectSetException {
-        if (id != null) { // operation on entire set only... for now
-            throw new NotFoundException();
-        }
-        Map<String, Object> result = null;
-        JsonValue _params = new JsonValue(params, new JsonPointer("params"));
-        Action action = _params.get("_action").required().asEnum(Action.class);
-        try {
-            switch (action) {
-                case onCreate:
-                    id = _params.get("id").required().asString();
-                    logger.debug("Synchronization _action=onCreate, id={}", id);
-                    onCreate(id, _params.get("_entity").expect(Map.class));
-                    break;
-                case onUpdate:
-                    id = _params.get("id").required().asString();
-                    logger.debug("Synchronization _action=onUpdate, id={}", id);
-                    onUpdate(id, null, _params.get("_entity").expect(Map.class));
-                    break;
-                case onDelete:
-                    id = _params.get("id").required().asString();
-                    logger.debug("Synchronization _action=onDelete, id={}", id);
-                    onDelete(id, null);
-                    break;
-                case recon:
-                    result = new HashMap<String, Object>();
-                    JsonValue mapping = _params.get("mapping").required();
-                    logger.debug("Synchronization _action=recon, mapping={}", mapping);
-                    String reconId = reconService.reconcile(mapping, Boolean.TRUE, _params);
-                    result.put("reconId", reconId);
-                    result.put("_id", reconId);
-                    result.put("comment1", "Deprecated API on sync service. Call recon action on recon service instead.");
-                    result.put("comment2", "Deprecated return property reconId, use _id instead.");
-                    break;
-                case performAction:
-                    logger.debug("Synchronization _action=performAction, params={}", _params);
-                    performAction(_params);
-                    result = new HashMap<String, Object>();
-                    //result.put("status", performAction(_params));
-                    break;
-            }
-        } catch (SynchronizationException se) {
-            throw new ConflictException(se);
-        }
-        return result;
+    @Override
+    public void patchInstance(ServerContext context, PatchRequest request, ResultHandler<Resource> handler) {
+        handler.handleError(ResourceUtil.notSupported(request));
+    }
+
+    @Override
+    public void readInstance(ServerContext context, ReadRequest request, ResultHandler<Resource> handler) {
+        handler.handleError(ResourceUtil.notSupported(request));
+    }
+
+    @Override
+    public void updateInstance(ServerContext context, UpdateRequest request, ResultHandler<Resource> handler) {
+        handler.handleError(ResourceUtil.notSupported(request));
     }
 }

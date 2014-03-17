@@ -30,6 +30,6 @@ public interface SyncFailureHandlerFactory {
      * @param config the config for the SyncFailureHandler
      * @return the SyncFailureHandler
      */
-    public SyncFailureHandler create(JsonValue config);
+    public SyncFailureHandler create(JsonValue config) throws Exception;
 }
 

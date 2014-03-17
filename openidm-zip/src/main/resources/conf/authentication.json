@@ -6,13 +6,17 @@
         "userCredential" : "password",
         "userRoles" : "roles"
     },
-    "adminGroups": [ ],
     "defaultUserRoles" : [ ],
-    "serverAuthConfig" : {
-        "authnPopulateContextScript": "&{launcher.install.location}/bin/defaults/script/auth/authnPopulateContext.js",
-        "idmAuth" : {
-            "sessionModule" : {
-                "name" : "JWT_SESSION",
+    "scriptExtensions" : {
+        "augmentSecurityContext" : {
+            "type" : "text/javascript",
+            "file" : "auth/authnPopulateContext.js"
+        }
+    },
+    "serverAuthContext" : {
+        "sessionModule" : {
+            "name" : "JWT_SESSION",
+            "properties" : {
                 "keyAlias" : "openidm-localhost",
                 "privateKeyPassword" : "&{openidm.keystore.password}",
                 "keystoreType" : "&{openidm.keystore.type}",
@@ -20,30 +24,33 @@
                 "keystorePassword" : "&{openidm.keystore.password}",
                 "maxTokenLifeMinutes" : "120",
                 "tokenIdleTimeMinutes" : "30",
-                "sessionOnly": true
-            },
-            "authModules" : [
-                {
-                    "name" : "PASSTHROUGH",
+                "sessionOnly" : true
+            }
+        },
+        "authModules" : [
+            {
+                "name" : "PASSTHROUGH",
+                "properties" : {
+                    "augmentSecurityContext": {
+                        "type" : "text/javascript",
+                        "file" : "auth/passthroughAuthnPopulateContext.js"
+                    },
                     "passThroughAuth" : "system/AD/account",
                     "propertyMapping" : {
-                        "userId" : "sAMAccountName",
-                        "groupMembership" : "memberOf"
-                    },                   
-                    "defaultUserRoles" : [ "openidm-authorized" ],
-                    "enabled" : false
-                },
-                {
-                    "name" : "MANAGED_USER",
-                    "propertyMapping" : {
-                        "userId" : "_id",
-                        "userCredential" : "password",
                         "userRoles" : "roles"
                     },
-                    "defaultUserRoles" : [ ]
+                    "defaultUserRoles" : [
+                    ]
                 },
-                {
-                    "name" : "INTERNAL_USER",
+                "enabled" : false
+            },
+            {
+                "name" : "MANAGED_USER",
+                "properties" : {
+                    "augmentSecurityContext": {
+                        "type" : "text/javascript",
+                        "file" : "auth/managedAuthnPopulateContext.js"
+                    },
                     "propertyMapping" : {
                         "userId" : "_id",
                         "userCredential" : "password",
@@ -51,7 +58,22 @@
                     },
                     "defaultUserRoles" : [ ]
                 }
-            ]
-        }
+            },
+            {
+                "name" : "INTERNAL_USER",
+                "properties" : {
+                    "augmentSecurityContext": {
+                        "type" : "text/javascript",
+                        "file" :  "auth/internalAuthnPopulateContext.js"
+                    },
+                    "propertyMapping" : {
+                        "userId" : "_id",
+                        "userCredential" : "password",
+                        "userRoles" : "roles"
+                    },
+                    "defaultUserRoles" : [ ]
+                }
+            }
+        ]
     }
 }

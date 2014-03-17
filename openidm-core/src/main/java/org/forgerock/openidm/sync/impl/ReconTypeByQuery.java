@@ -33,15 +33,12 @@ import java.util.List;
 
 import org.forgerock.json.fluent.JsonValue;
 import org.forgerock.json.fluent.JsonValueException;
-import org.forgerock.openidm.objset.ObjectSetException;
-import org.forgerock.openidm.repo.QueryConstants;
-import org.forgerock.openidm.sync.SynchronizationException;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * Represents a reconciliation of a set defined by query/queries, 
+ * Represents a reconciliation of a set defined by query/queries,
  * typically a sub-set of source and/or target objects
  * @author aegloff
  */
@@ -51,20 +48,23 @@ public class ReconTypeByQuery extends ReconTypeBase {
     // Defaulting to run target phase
     static final boolean DEFAULT_RUN_TARGET_PHASE = true;
     
+    // Defaulting to allow empty source set
+    static final boolean DEFAULT_ALLOW_EMPTY_SOURCE_SET = true;
+
     JsonValue sourceQuery;
     JsonValue targetQuery;
 
     public ReconTypeByQuery(ReconciliationContext reconContext) {
-        super(reconContext, DEFAULT_RUN_TARGET_PHASE);
-        
-        sourceQuery = calcEffectiveQuery("sourceQuery", 
+        super(reconContext, DEFAULT_RUN_TARGET_PHASE, DEFAULT_ALLOW_EMPTY_SOURCE_SET);
+
+        sourceQuery = calcEffectiveQuery("sourceQuery",
                 reconContext.getObjectMapping().getSourceObjectSet());
-        targetQuery = calcEffectiveQuery("targetQuery", 
+        targetQuery = calcEffectiveQuery("targetQuery",
                 reconContext.getObjectMapping().getTargetObjectSet());
     }
 
     public List<String> querySourceIds() throws SynchronizationException {
-        List<String> sourceIds = (List<String>) query(sourceQuery.get("resourceName").asString(), sourceQuery, reconContext, 
+        List<String> sourceIds = (List<String>) query(sourceQuery.get("resourceName").asString(), sourceQuery, reconContext,
                 ((Collection<String>) Collections.synchronizedList(new ArrayList<String>())), true);
         return sourceIds;
     }

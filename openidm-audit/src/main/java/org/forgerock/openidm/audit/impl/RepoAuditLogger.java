@@ -1,7 +1,7 @@
 /*
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS HEADER.
  *
- * Copyright (c) 2011-2013 ForgeRock AS. All rights reserved.
+ * Copyright (c) 2011-2014 ForgeRock AS. All rights reserved.
  *
  * The contents of this file are subject to the terms
  * of the Common Development and Distribution License
@@ -25,91 +25,94 @@ package org.forgerock.openidm.audit.impl;
 
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 import org.forgerock.json.fluent.JsonValue;
+import org.forgerock.json.resource.BadRequestException;
+import org.forgerock.json.resource.ConnectionFactory;
+import org.forgerock.json.resource.CreateRequest;
+import org.forgerock.json.resource.QueryRequest;
+import org.forgerock.json.resource.QueryResult;
+import org.forgerock.json.resource.QueryResultHandler;
+import org.forgerock.json.resource.ReadRequest;
+import org.forgerock.json.resource.Requests;
+import org.forgerock.json.resource.Resource;
+import org.forgerock.json.resource.ResourceException;
+import org.forgerock.json.resource.ServerContext;
 import org.forgerock.openidm.audit.AuditService;
-import org.forgerock.openidm.config.InvalidException;
-import org.forgerock.openidm.objset.BadRequestException;
-import org.forgerock.openidm.objset.ForbiddenException;
-import org.forgerock.openidm.objset.InternalServerErrorException;
-import org.forgerock.openidm.objset.JsonResourceObjectSet;
-import org.forgerock.openidm.objset.NotFoundException;
-import org.forgerock.openidm.objset.ObjectSetException;
-import org.forgerock.openidm.objset.Patch;
-import org.forgerock.openidm.objset.ServiceUnavailableException;
-import org.forgerock.openidm.repo.QueryConstants;
-import org.forgerock.openidm.repo.RepositoryService;
+import org.forgerock.openidm.config.enhanced.InvalidException;
 import org.forgerock.openidm.smartevent.EventEntry;
 import org.forgerock.openidm.smartevent.Name;
 import org.forgerock.openidm.smartevent.Publisher;
 import org.osgi.framework.BundleContext;
-import org.osgi.framework.ServiceReference;
-import org.osgi.util.tracker.ServiceTracker;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
  * Audit logger that logs to a repository
+ *
  * @author aegloff
+ * @author brmiller
  */
 public class RepoAuditLogger extends AbstractAuditLogger implements AuditLogger {
     final static Logger logger = LoggerFactory.getLogger(RepoAuditLogger.class);
-    
+
     /**
      * Event names for monitoring audit behavior
      */
     public static final Name EVENT_AUDIT_CREATE = Name.get("openidm/internal/audit/repo/create");
 
-    BundleContext ctx;
+    /** provides a reference to the router for real-time query handling */
+    private ConnectionFactory connectionFactory;
 
-    JsonResourceObjectSet repo;
-    
-    String fullIdPrefix = AuditService.ROUTER_PREFIX + "/";
-    
+    /**
+     * Constructor.
+     *
+     * @param connectionFactory
+     */
+    public RepoAuditLogger(ConnectionFactory connectionFactory) {
+        this.connectionFactory = connectionFactory;
+    }
+
     public void setConfig(Map config, BundleContext ctx) throws InvalidException {
         super.setConfig(config, ctx);
-        this.ctx = ctx;
     }
-    
+
     public void cleanup() {
     }
-    
+
     /**
      * {@inheritDoc}
      */
     @Override
-    public Map<String, Object> read(String fullId) throws ObjectSetException {
-        getRepoService();
-        Map<String, Object> params = new HashMap<String, Object>();
+    public Map<String, Object> read(ServerContext context, String type, String id) throws ResourceException {
+        Map<String, String> params = new HashMap<String, String>();
         params.put("_queryId", "query-all");
         params.put("fields", "*");
-        String[] split = AuditServiceImpl.splitFirstLevel(fullId);
-        String type = split[0];
-        String id = split[1];
         Map<String, Object> result = new HashMap<String, Object>();
-        try {
-            List<Map<String, Object>> entries = new ArrayList<Map<String, Object>>();
-            if (id == null) {
-                Map<String, Object> queryResult = repo.query(fullIdPrefix + fullId, params);
-                for (Map<String, Object> entry : (List<Map<String, Object>>) queryResult.get(QueryConstants.QUERY_RESULT)) {
-                    entries.add(AuditServiceImpl.formatLogEntry(entry, type));
-                }
-                parseJsonValuesFromList(entries);
-                result.put("entries", entries);
-            } else {
-                Map<String, Object> entry = repo.read(fullIdPrefix + fullId);
-                parseJsonValuesFromEntry(entry);
-                result = AuditServiceImpl.formatLogEntry(entry, type);
-            }
 
-        } catch (ObjectSetException ex) {
-            throw ex;
-        } catch (RuntimeException ex) {
-            repo = null; // For unexpected exceptions start fresh
-            throw ex;
+        List<Map<String, Object>> entries = new ArrayList<Map<String, Object>>();
+        if (id == null) {
+            QueryRequest request = Requests.newQueryRequest(getRepoTarget(type));
+            request.setQueryId("query-all");
+            request.getAdditionalParameters().putAll(params);
+            Set<Resource> r = new HashSet<Resource>();
+            connectionFactory.getConnection().query(context, request, r);
+            for (Resource entry : r) {
+                entries.add(AuditServiceImpl.formatLogEntry(entry.getContent().asMap(), type));
+            }
+            formatActivityList(entries);
+            result.put("entries", entries);
+        } else {
+            ReadRequest request = Requests.newReadRequest(getRepoTarget(type), id);
+            Map<String, Object> entry = connectionFactory.getConnection().read(context, request).getContent().asMap();
+            formatActivityEntry(entry);
+            result = AuditServiceImpl.formatLogEntry(entry, type);
         }
+
         return result;
     }
 
@@ -117,27 +120,41 @@ public class RepoAuditLogger extends AbstractAuditLogger implements AuditLogger 
      * {@inheritDoc}
      */
     @Override
-    public Map<String, Object> query(String fullId, Map<String, Object> params) throws ObjectSetException {
-        getRepoService();
-        String queryId = (String)params.get("_queryId");
+    public Map<String, Object> query(ServerContext context, String type, Map<String, String> params) throws ResourceException {
+        String queryId = params.get("_queryId");
         boolean formatted = true;
-        String[] split = AuditServiceImpl.splitFirstLevel(fullId);
-        String type = split[0];
         try {
             if (params.get("formatted") != null && !AuditServiceImpl.getBoolValue(params.get("formatted"))) {
                 formatted = false;
             }
-            Map<String, Object> queryResults = repo.query(fullIdPrefix + fullId, params);
-        
+            QueryRequest request = Requests.newQueryRequest(getRepoTarget(type));
+            request.setQueryId(queryId);
+            request.getAdditionalParameters().putAll(params);
+            final List<Map<String, Object>> queryResults = new ArrayList<Map<String, Object>>();
+            connectionFactory.getConnection().query(context, request, new QueryResultHandler() {
+                @Override
+                public void handleError(ResourceException error) {
+                    // Continue
+                }
+
+                @Override
+                public boolean handleResource(Resource resource) {
+                    queryResults.add(resource.getContent().asMap());
+                    return true;
+                }
+
+                @Override
+                public void handleResult(QueryResult result) {
+                    // Ignore
+                }
+            });
             if (type.equals(AuditServiceImpl.TYPE_RECON)) {
-                return AuditServiceImpl.getReconResults((List<Map<String, Object>>)queryResults.get(QueryConstants.QUERY_RESULT), 
-                        (String)params.get("reconId"), formatted);
+                return AuditServiceImpl.getReconResults(queryResults, formatted);
             } else if (type.equals(AuditServiceImpl.TYPE_ACTIVITY)) {
-                List<Map<String, Object>> entryList = (List<Map<String, Object>>)queryResults.get(QueryConstants.QUERY_RESULT);
-                parseJsonValuesFromList(entryList);
-                return AuditServiceImpl.getActivityResults(entryList, formatted);
+                formatActivityList(queryResults);
+                return AuditServiceImpl.getActivityResults(queryResults, formatted);
             } else if (type.equals(AuditServiceImpl.TYPE_ACCESS)) {
-                return AuditServiceImpl.getAccessResults((List<Map<String, Object>>)queryResults.get(QueryConstants.QUERY_RESULT), formatted);
+                return AuditServiceImpl.getAccessResults(queryResults, formatted);
             } else {
                 throw new BadRequestException("Unsupported queryId " +  queryId + " on type " + type);
             }
@@ -145,14 +162,14 @@ public class RepoAuditLogger extends AbstractAuditLogger implements AuditLogger 
             throw new BadRequestException(e);
         }
     }
-    
-    public void parseJsonValuesFromList(List<Map<String, Object>> entryList) {
+
+    public void formatActivityList(List<Map<String, Object>> entryList) {
         for (Map<String, Object> entry : entryList) {
-            parseJsonValuesFromEntry(entry);
+            formatActivityEntry(entry);
         }
     }
 
-    public void parseJsonValuesFromEntry(Map<String, Object> entry) {
+    public void formatActivityEntry(Map<String, Object> entry) {
         Object beforeValue = entry.get("before");
         Object afterValue = entry.get("after");
         if (beforeValue != null) {
@@ -162,101 +179,28 @@ public class RepoAuditLogger extends AbstractAuditLogger implements AuditLogger 
             entry.put("after", AuditServiceImpl.parseJsonString((String)afterValue).getObject());
         }
     }
-    
+
     /**
      * {@inheritDoc}
      */
     @Override
-    public void create(String fullId, Map<String, Object> obj) throws ObjectSetException {
+    public void create(ServerContext context, String type, Map<String, Object> obj) throws ResourceException {
         EventEntry measure = Publisher.start(EVENT_AUDIT_CREATE, obj, null);
-        String[] split = AuditServiceImpl.splitFirstLevel(fullId);
-        String type = split[0];
         try {
             AuditServiceImpl.preformatLogEntry(type, obj);
-            createImpl(fullId, obj);
+            createImpl(context, type, obj);
         } finally {
             measure.end();
         }
     }
-    
-    private void createImpl(String fullId, Map<String, Object> obj) throws ObjectSetException {
-        JsonResourceObjectSet svc = getRepoService();
-        try {
-            svc.create(fullIdPrefix + fullId, obj);
-        } catch (ObjectSetException ex) {
-            throw ex;
-        } catch (RuntimeException ex) {
-            repo = null; // For unexpected exceptions start fresh
-            throw ex;
-        }
+
+    private void createImpl(ServerContext context, String type, Map<String, Object> obj) throws ResourceException {
+        CreateRequest request = Requests.newCreateRequest(
+                getRepoTarget(type), (String) obj.get(Resource.FIELD_CONTENT_ID), new JsonValue(obj));
+        connectionFactory.getConnection().create(context, request);
     }
 
-    private JsonResourceObjectSet getRepoService() throws ServiceUnavailableException, InternalServerErrorException {
-        if (repo == null) {
-            if (ctx != null) {
-                try {
-                    ServiceTracker<RepositoryService, RepositoryService> serviceTracker
-                            = new ServiceTracker<RepositoryService, RepositoryService>(ctx, RepositoryService.class,
-                            null);
-                    serviceTracker.open();
-                    int timeout = 10000;
-                    logger.debug("Look for repository service for {} ms", Integer.valueOf(timeout));
-                    RepositoryService repositoryService = serviceTracker.waitForService(timeout);
-                    serviceTracker.close();
-                    if (null == repositoryService) {
-                        ServiceReference<RepositoryService> ref = ctx.getServiceReference(RepositoryService.class);
-                        if (null != ref) {
-                            repositoryService = ctx.getService(ref);
-                        }
-                    }
-                    if (null != repositoryService) {
-                        repo = new JsonResourceObjectSet(repositoryService);
-                        logger.debug("Repository service found: {}", repo);
-                    }
-                } catch (Exception ex) {
-                    throw new InternalServerErrorException("Repository audit logger failure to obtain the repo service."
-                            + ex.getMessage(), ex);
-                }
-                if (null == repo){
-                    throw new InternalServerErrorException("Repository audit logger failure to obtain the repo service.");
-                }
-            }
-        }
-        if (repo == null) {
-            throw new ServiceUnavailableException("Repository audit logger could not find the repository service.");
-        }
-        return repo;
-    }
-    
-    /**
-     * Audit service does not support changing audit entries.
-     */
-    @Override
-    public void update(String fullId, String rev, Map<String, Object> obj) throws ObjectSetException {
-        throw new ForbiddenException("Not allowed on audit service");
-    }
-
-    /**
-     * Audit service currently does not support deleting audit entries.
-     */ 
-    @Override
-    public void delete(String fullId, String rev) throws ObjectSetException {
-        throw new ForbiddenException("Not allowed on audit service");
-    }
-
-    /**
-     * Audit service does not support changing audit entries.
-     */
-    @Override
-    public void patch(String id, String rev, Patch patch) throws ObjectSetException {
-        throw new ForbiddenException("Not allowed on audit service");
-    }
-
-    /**
-     * Audit service does not support actions on audit entries.
-     */
-    @Override
-    public Map<String, Object> action(String id, Map<String, Object> params) throws ObjectSetException {
-        throw new ForbiddenException("Not allowed on audit service");
+    private String getRepoTarget(String type) {
+        return new StringBuilder("/repo").append(AuditService.ROUTER_PREFIX).append("/").append(type).toString();
     }
 }

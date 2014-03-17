@@ -16,50 +16,37 @@
 
 package org.forgerock.openidm.config.crypto;
 
-import java.io.IOException;
-import java.io.InputStream;
-import java.net.URL;
-import java.util.Collection;
-import java.util.Enumeration;
-import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collection;
 import java.util.Dictionary;
 import java.util.HashMap;
 import java.util.Hashtable;
 import java.util.List;
 import java.util.Map;
 
-import org.codehaus.jackson.impl.DefaultPrettyPrinter;
-import org.codehaus.jackson.impl.Indenter;
-import org.codehaus.jackson.map.ObjectWriter;
 import org.codehaus.jackson.map.ObjectMapper;
-import org.codehaus.jackson.JsonGenerator;
-import org.codehaus.jackson.JsonGenerationException;
-import org.codehaus.jackson.PrettyPrinter;
-
+import org.codehaus.jackson.map.ObjectWriter;
 import org.forgerock.json.crypto.JsonCryptoException;
+import org.forgerock.json.fluent.JsonPointer;
 import org.forgerock.json.fluent.JsonValue;
 import org.forgerock.json.fluent.JsonValueException;
-import org.forgerock.json.fluent.JsonPointer;
-import org.forgerock.openidm.config.InternalErrorException;
-import org.forgerock.openidm.config.InvalidException;
-import org.forgerock.openidm.config.JSONEnhancedConfig;
+import org.forgerock.openidm.config.enhanced.InternalErrorException;
+import org.forgerock.openidm.config.enhanced.InvalidException;
+import org.forgerock.openidm.config.enhanced.JSONEnhancedConfig;
 import org.forgerock.openidm.config.installer.JSONConfigInstaller;
 import org.forgerock.openidm.config.installer.JSONPrettyPrint;
-import org.forgerock.openidm.core.ServerConstants;
 import org.forgerock.openidm.core.IdentityServer;
+import org.forgerock.openidm.core.ServerConstants;
 import org.forgerock.openidm.crypto.CryptoService;
 import org.forgerock.openidm.metadata.MetaDataProvider;
+import org.forgerock.openidm.metadata.NotConfiguration;
 import org.forgerock.openidm.metadata.WaitForMetaData;
-import org.forgerock.openidm.metadata.impl.ProviderTracker;
 import org.forgerock.openidm.metadata.impl.ProviderListener;
-
+import org.forgerock.openidm.metadata.impl.ProviderTracker;
 import org.osgi.framework.BundleContext;
-import org.osgi.framework.Bundle;
 import org.osgi.framework.Constants;
 import org.osgi.framework.Filter;
 import org.osgi.util.tracker.ServiceTracker;
-
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -125,6 +112,8 @@ public class ConfigCrypto {
             } catch (WaitForMetaData ex) {
                 // Continue to check if another meta data provider can resolve the meta data
                 lastWaitException = ex;
+            } catch (NotConfiguration e) {
+                logger.error("Error getting additional properties to encrypt", e);
             }
         }
         if (lastWaitException != null) {

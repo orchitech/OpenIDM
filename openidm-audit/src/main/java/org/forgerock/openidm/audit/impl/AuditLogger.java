@@ -25,7 +25,9 @@ package org.forgerock.openidm.audit.impl;
 
 import java.util.Map;
 
-import org.forgerock.openidm.objset.ObjectSet;
+import org.forgerock.json.resource.ResourceException;
+import org.forgerock.json.resource.ResourceName;
+import org.forgerock.json.resource.ServerContext;
 
 import org.osgi.framework.BundleContext;
 
@@ -34,16 +36,16 @@ import org.osgi.framework.BundleContext;
  * @author aegloff
  * @author brmiller
  */
-public interface AuditLogger extends ObjectSet {
-    
+public interface AuditLogger {
+
     /**
-     * Set the audit logger configuration which is a logger specific 
-     * map 
+     * Set the audit logger configuration which is a logger specific
+     * map
      * @param config the configuration
      * @param ctx
      */
     void setConfig(Map config, BundleContext ctx);
-    
+
     /**
      * Cleanup called when auditlogger no longer needed
      */
@@ -63,4 +65,54 @@ public interface AuditLogger extends ObjectSet {
      * @return whether to ignore logging failures
      */
     boolean isIgnoreLoggingFailures();
+
+    /**
+     * Creates a new object in the object set.
+     * <p>
+     * On completion, this method sets the {@code _id} property to the assigned identifier for
+     * the object, and the {@code _rev} property to object version if optimistic concurrency
+     * is supported.
+     *
+     * @param type the requested type of audit object to create.
+     * @param object the contents of the object to create in the object set.
+     * @throws ForbiddenException if access to the object or object set is forbidden.
+     */
+    void create(ServerContext context, String type, Map<String, Object> object) throws ResourceException;
+
+    /**
+     * Reads an object from the object set.
+     * <p>
+     * The returned object will contain metadata properties, including relative object
+     * identifier {@code _id}. If optimistic concurrency is supported, the object version
+     * {@code _rev} will be set in the returned object. If optimistic concurrency is not
+     * supported, then {@code _rev} must be {@code null} or absent.
+     *
+     *
+     *
+     * @param type
+     * @param localId
+     * @throws NotFoundException if the specified object could not be found.
+     * @throws ForbiddenException if access to the object is forbidden.
+     * @return the requested object.
+     */
+    Map<String, Object> read(ServerContext context, String type, String localId) throws ResourceException;
+
+    /**
+     * Performs a query on the specified object and returns the associated result. The
+     * execution of a query is not allowed to incur side effects.
+     * <p>
+     * Queries are parametric; a set of named parameters is provided as the query criteria.
+     * The query result is a JSON object structure composed of basic Java types; its overall
+     * structure is defined by the implementation.
+     *
+     *
+     *
+     * @param type
+     * @param params the parameters of the query to perform.
+     * @return the query result object.
+     * @throws NotFoundException if the specified object could not be found.
+     * @throws ForbiddenException if access to the object or the specified query is forbidden.
+     */
+    Map<String, Object> query(ServerContext context, String type, Map<String, String> params) throws ResourceException;
+
 }

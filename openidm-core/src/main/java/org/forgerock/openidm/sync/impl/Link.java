@@ -11,7 +11,7 @@
  * Header, with the fields enclosed by brackets [] replaced by your own identifying
  * information: "Portions Copyrighted [year] [name of copyright owner]".
  *
- * Copyright © 2011 ForgeRock AS. All rights reserved.
+ * Copyright © 2011-2014 ForgeRock AS. All rights reserved.
  */
 
 // TODO: Extend from something like FieldMap to handle the Java ↔ JSON translations.
@@ -19,6 +19,8 @@
 package org.forgerock.openidm.sync.impl;
 
 // Java Standard Edition
+import java.util.ArrayList;
+import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -26,6 +28,17 @@ import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
 // SLF4J
+import org.forgerock.json.resource.ConnectionFactory;
+import org.forgerock.json.resource.CreateRequest;
+import org.forgerock.json.resource.DeleteRequest;
+import org.forgerock.json.resource.QueryRequest;
+import org.forgerock.json.resource.QueryResult;
+import org.forgerock.json.resource.QueryResultHandler;
+import org.forgerock.json.resource.Requests;
+import org.forgerock.json.resource.Resource;
+import org.forgerock.json.resource.ResourceException;
+import org.forgerock.json.resource.ServerContext;
+import org.forgerock.json.resource.UpdateRequest;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -34,18 +47,13 @@ import org.forgerock.json.fluent.JsonValue;
 import org.forgerock.json.fluent.JsonValueException;
 
 // OpenIDM
-import org.forgerock.openidm.objset.ObjectSet;
-import org.forgerock.openidm.objset.NotFoundException;
-import org.forgerock.openidm.objset.ObjectSetException;
-import org.forgerock.openidm.repo.QueryConstants;
-import org.forgerock.openidm.sync.SynchronizationException;
 
 /**
  * Uni-directional view of a link.
- * 
+ *
  * Link Types and Links in the repository are bi-directional.
- * 
- * This view represents one direction of that Link to match the direction of the 
+ *
+ * This view represents one direction of that Link to match the direction of the
  * current mapping context (source/target object set).
  *
  * @author Paul C. Bryan
@@ -55,8 +63,8 @@ class Link {
 
     private final static Logger LOGGER = LoggerFactory.getLogger(Link.class);
 
-    // The mapping associated with this link view. 
-    // This link view is specific to the direction of this mapping context 
+    // The mapping associated with this link view.
+    // This link view is specific to the direction of this mapping context
     private final ObjectMapping mapping;
 
     // The unique identifier of the link
@@ -64,15 +72,15 @@ class Link {
 
     // The MVCC revision of the link
     public String _rev;
-   
-    // The id linked in the source object set of the mapping. 
-    // This link view is specific to the direction of the mapping context 
+
+    // The id linked in the source object set of the mapping.
+    // This link view is specific to the direction of the mapping context
     public String sourceId;
 
-    // The id linked in the target object set of the mapping. 
-    // This link view is specific to the direction of the mapping context 
+    // The id linked in the target object set of the mapping.
+    // This link view is specific to the direction of the mapping context
     public String targetId;
-    
+
     // Whether this link representation has been initialized.
     // Once initialized is true, _id == null can be interpreted as a link that doesn't exist in our repository yet
     public boolean initialized = false;
@@ -107,14 +115,14 @@ class Link {
      * @throws SynchronizationException if getting and initializing the link details fail
      */
     private void getLink(JsonValue query) throws SynchronizationException {
-        JsonValue results = linkQuery(mapping.getService().getRouter(), query);
+        JsonValue results = linkQuery(mapping.getService().getRouter(), mapping.getService().getConnectionFactory(), query);
         if (results.size() == 1) {
             fromJsonValue(results.get(0));
         } else if (results.size() > 1) { // shouldn't happen if index is unique
             throw new SynchronizationException("More than one link found");
         }
     }
-    
+
     /**
      * Issues a query on link(s)
      *
@@ -122,14 +130,40 @@ class Link {
      * @return The query results
      * @throws SynchronizationException if getting and initializing the link details fail
      */
-    private static JsonValue linkQuery(ObjectSet router, JsonValue query) throws SynchronizationException {
+    private static JsonValue linkQuery(ServerContext router, ConnectionFactory connectionFactory, JsonValue query) throws SynchronizationException {
         JsonValue results = null;
         try {
-            results = new JsonValue(router.query(linkId(null), 
-                    query.asMap())).get(QueryConstants.QUERY_RESULT).required().expect(List.class);
+            QueryRequest r = Requests.newQueryRequest(linkId(null));
+            r.setQueryId(query.get(QueryRequest.FIELD_QUERY_ID).asString());
+            r.setQueryExpression(query.get(QueryRequest.FIELD_QUERY_EXPRESSION).asString());
+            for (Map.Entry<String, Object> e: query.asMap().entrySet()) {
+                r.setAdditionalParameter(e.getKey(), String.valueOf(e.getValue()));
+            }
+
+            final Collection<Map<String, Object>> result = new ArrayList<Map<String, Object>>();
+
+            connectionFactory.getConnection().query(router, r, new QueryResultHandler() {
+                @Override
+                public void handleError(ResourceException error) {
+                    // ignore
+                }
+
+                @Override
+                public boolean handleResource(Resource resource) {
+                    result.add(resource.getContent().asMap());
+                    return true;
+                }
+
+                @Override
+                public void handleResult(QueryResult result) {
+                    // ignore
+                }
+            });
+
+            results = new JsonValue(result).required().expect(List.class);
         } catch (JsonValueException jve) {
             throw new SynchronizationException("Malformed link query response", jve);
-        } catch (ObjectSetException ose) {
+        } catch (ResourceException ose) {
             throw new SynchronizationException("Link query failed", ose);
         }
         return results;
@@ -163,7 +197,7 @@ class Link {
      */
     private JsonValue toJsonValue() {
         JsonValue jv = new JsonValue(new HashMap<String, Object>());
-        
+
         sourceId = mapping.getLinkType().normalizeSourceId(sourceId);
         targetId = mapping.getLinkType().normalizeTargetId(targetId);
 
@@ -215,8 +249,8 @@ class Link {
     private void getLinkFromFirst(String id) throws SynchronizationException {
         clear();
         if (id != null) {
-            JsonValue query = new JsonValue(new HashMap<String, Object>());            
-            query.put(QueryConstants.QUERY_ID, "links-for-firstId");
+            JsonValue query = new JsonValue(new HashMap<String, Object>());
+            query.put(QueryRequest.FIELD_QUERY_ID, "links-for-firstId");
             query.put("linkType", mapping.getLinkType().getName());
             query.put("firstId", id);
             getLink(query);
@@ -237,7 +271,7 @@ class Link {
             getLinkFromSecond(aTargetId);
         }
     }
-    
+
     /**
      * Queries the links for a match on the second system (links can be bi-directional)
      * <p>
@@ -251,20 +285,20 @@ class Link {
         clear();
         if (id != null) {
             JsonValue query = new JsonValue(new HashMap<String, Object>());
-            query.put(QueryConstants.QUERY_ID, "links-for-secondId");
+            query.put(QueryRequest.FIELD_QUERY_ID, "links-for-secondId");
             query.put("linkType", mapping.getLinkType().getName());
             query.put("secondId", id);
             getLink(query);
         }
     }
-    
+
     /**
      * Queries all the links for a given mapping, indexed by the source identifier
      * <p>
      * This method expects a {@code "links-for-linkType"} defined with a parameter of
      * {@code "linkType"}.
      *
-     * @param mapping the mapping to look up the links for 
+     * @param mapping the mapping to look up the links for
      * @throws SynchronizationException if the query could not be performed.
      * @return the mapping from source identifier to the link object for it
      */
@@ -272,9 +306,9 @@ class Link {
         Map<String, Link> sourceIdToLink = new ConcurrentHashMap<String, Link>();
         if (mapping != null) {
             JsonValue query = new JsonValue(new HashMap<String, Object>());
-            query.put(QueryConstants.QUERY_ID, "links-for-linkType");
+            query.put(QueryRequest.FIELD_QUERY_ID, "links-for-linkType");
             query.put("linkType", mapping.getLinkType().getName());
-            JsonValue queryResults = linkQuery(mapping.getService().getRouter(), query);
+            JsonValue queryResults = linkQuery(mapping.getService().getRouter(), mapping.getService().getConnectionFactory(), query);
             for (JsonValue entry : queryResults) {
                 Link link = new Link(mapping);
                 link.fromJsonValue(entry);
@@ -283,13 +317,13 @@ class Link {
         }
         return sourceIdToLink;
     }
-    
+
     /** Compares the given Id to the current targetId,
      * taking into account the settings for case sensitivity
      * @param compareTargetId The target id to compare
      * @return true if the given Id is considered equivalent to the current target id
      */
-    public boolean targetEquals(String compareTargetId) { 
+    public boolean targetEquals(String compareTargetId) {
         String normalizedCompId = mapping.getLinkType().normalizeTargetId(compareTargetId);
         String normalizedTargetId = mapping.getLinkType().normalizeTargetId(targetId);
         if (normalizedTargetId != null) {
@@ -308,14 +342,15 @@ class Link {
         _id = UUID.randomUUID().toString(); // client-assigned identifier
         JsonValue jv = toJsonValue();
         try {
-            mapping.getService().getRouter().create(linkId(_id), jv.asMap());
-        } catch (ObjectSetException ose) {
+            CreateRequest r = Requests.newCreateRequest(linkId(null), _id, jv);
+            Resource resource = mapping.getService().getConnectionFactory().getConnection().create(mapping.getService().getRouter(), r);
+            this._id = resource.getId();
+            this._rev = resource.getRevision();
+            this.initialized = true;
+        } catch (ResourceException ose) {
             LOGGER.debug("Failed to create link", ose);
             throw new SynchronizationException(ose);
         }
-        this._id = jv.get("_id").required().asString();
-        this._rev = jv.get("_rev").asString(); // optional
-        this.initialized = true;
     }
 
     /**
@@ -326,8 +361,10 @@ class Link {
     void delete() throws SynchronizationException {
         if (_id != null) { // forgiving delete
             try {
-                mapping.getService().getRouter().delete(linkId(_id), _rev);
-            } catch (ObjectSetException ose) {
+                DeleteRequest r = Requests.newDeleteRequest(linkId(_id));
+                r.setRevision(_rev);
+                mapping.getService().getConnectionFactory().getConnection().delete(mapping.getService().getRouter(),r);
+            } catch (ResourceException ose) {
                 LOGGER.warn("Failed to delete link", ose);
                 throw new SynchronizationException(ose);
             }
@@ -346,8 +383,10 @@ class Link {
         }
         JsonValue jv = toJsonValue();
         try {
-            mapping.getService().getRouter().update(linkId(_id), _rev, jv.asMap());
-        } catch (ObjectSetException ose) {
+            UpdateRequest r = Requests.newUpdateRequest(linkId(_id), jv);
+            r.setRevision(_rev);
+            mapping.getService().getConnectionFactory().getConnection().update(mapping.getService().getRouter(),r);
+        } catch (ResourceException ose) {
             LOGGER.warn("Failed to update link", ose);
             throw new SynchronizationException(ose);
         }

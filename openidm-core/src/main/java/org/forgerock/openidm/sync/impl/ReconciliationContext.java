@@ -36,53 +36,70 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 import org.forgerock.json.fluent.JsonValue;
-import org.forgerock.openidm.objset.BadRequestException;
-import org.forgerock.openidm.sync.SynchronizationException;
+import org.forgerock.json.resource.BadRequestException;
+import org.forgerock.json.resource.ServerContext;
+
 
 /**
- * Represents the information and functionality for a 
+ * Represents the information and functionality for a
  * reconciliation run
- * 
+ *
  * @author aegloff
  */
 public class ReconciliationContext {
-    
+
     ObjectMapping mapping;
     ReconciliationService service;
-    
+
+    // The additional recon parameters
     private JsonValue reconParams;
+    
+    // The overriding configuration
+    private JsonValue overridingConfig;
 
     private ReconStage stage = ReconStage.ACTIVE_INITIALIZED;
     private String reconId;
-    
+
     private boolean canceled = false;
     private ReconTypeHandler reconTypeHandler;
     private final ReconciliationStatistic reconStat;
     private ExecutorService executor;
-    
+
     // If set, the list of all queried source Ids
-    private Set<String> sourceIds; 
+    private Set<String> sourceIds;
     // If set, the list of all queried target Ids
     private Set<String> targetIds;
-    
+
     private Integer totalSourceEntries;
     private Integer totalTargetEntries;
     private Integer totalLinkEntries;
 
     /**
      * Creates the instance with info from the current call context
+     * @param reconAction the recon action
+     * @param mapping the mapping configuration
      * @param callingContext The resource call context
      * @param reconParams configuration options for the recon
+     * @param config the overriding config (if specified in the request body)
      */
-    public ReconciliationContext(ObjectMapping mapping, JsonValue callingContext, JsonValue reconParams,
-            ReconciliationService service) throws BadRequestException {
+    public ReconciliationContext(
+            ReconciliationService.ReconAction reconAction,
+            ObjectMapping mapping,
+            ServerContext callingContext,
+            JsonValue reconParams,
+            JsonValue overridingConfig,
+            ReconciliationService service)
+        throws BadRequestException {
+
         this.mapping = mapping;
-        this.reconId = callingContext.get("uuid").required().asString();
+        this.reconId = callingContext.getId();
         this.reconStat = new ReconciliationStatistic(this);
         this.reconParams = reconParams;
+        this.overridingConfig = overridingConfig;
         this.service = service;
-        reconTypeHandler = createReconTypeHandler(reconParams);
-
+        
+        reconTypeHandler = createReconTypeHandler(reconAction);
+        
         // Initialize the executor for this recon, or null if no executor should be used
         int noOfThreads = mapping.getTaskThreads();
         if (noOfThreads > 0) {
@@ -94,24 +111,20 @@ public class ReconciliationContext {
 
     /**
      * Factory method for the recon type handlers
-     * @param reconParams the configuration parameters
-     * @return
+     * @param reconAction the recon action
+     * @return the handler appropriate for this recon action type
      */
-    private ReconTypeHandler createReconTypeHandler(JsonValue reconParams) throws BadRequestException {
-        ReconTypeHandler handler = null;
-        switch (reconParams.get("_action").asEnum(ReconciliationService.ReconAction.class)) {
-        case recon : 
-            handler = new ReconTypeByQuery(this);
-            break;
-        case reconById : 
-            handler = new ReconTypeById(this); 
-            break;
-        default: 
-            throw new BadRequestException("Unknown action " + reconParams.get("_action").asString());
+    private ReconTypeHandler createReconTypeHandler(ReconciliationService.ReconAction reconAction) throws BadRequestException {
+        switch (reconAction) {
+        case recon :
+            return new ReconTypeByQuery(this);
+        case reconById :
+            return new ReconTypeById(this);
+        default:
+            throw new BadRequestException("Unknown action " + reconAction.toString());
         }
-        return handler;
     }
-
+    
     /**
      * @return A unique identifier for the reconciliation run
      */
@@ -131,6 +144,13 @@ public class ReconciliationContext {
      */
     public JsonValue getReconParams() {
         return reconParams;
+    }
+
+    /**
+     * @return the overriding configuration
+     */
+    public JsonValue getOverridingConfig() {
+        return overridingConfig;
     }
 
     /**
@@ -164,11 +184,11 @@ public class ReconciliationContext {
      * @return Statistics about this reconciliation run
      */
     public ReconciliationStatistic getStatistics() {
-        return reconStat; 
+        return reconStat;
     }
 
     /**
-     * @return The name of the ObjectMapping associated 
+     * @return The name of the ObjectMapping associated
      * with the reconciliation run
      */
     public String getMapping() {
@@ -197,16 +217,16 @@ public class ReconciliationContext {
         // Unknown total entries are currently represented via question mark string.
         String totalSourceEntriesStr = (totalSourceEntries == null ? "?" : Integer.toString(totalSourceEntries));
         String totalTargetEntriesStr = (totalTargetEntries == null ? "?" : Integer.toString(totalTargetEntries));
-        
+
         String totalLinkEntriesStr = "?";
         if (totalLinkEntries == null) {
             if (getStage() == ReconStage.COMPLETED_SUCCESS) {
-                totalLinkEntriesStr = Integer.toString(getStatistics().getLinkProcessed()); 
+                totalLinkEntriesStr = Integer.toString(getStatistics().getLinkProcessed());
             }
         } else {
             totalLinkEntriesStr = Integer.toString(totalLinkEntries);
         }
-        
+
         Map<String, Object> progressDetail = new LinkedHashMap<String, Object>();
         Map<String, Object> sourceDetail = new LinkedHashMap<String, Object>();
         Map<String, Object> sourceExisting = new LinkedHashMap<String, Object>();
@@ -214,18 +234,18 @@ public class ReconciliationContext {
         Map<String, Object> targetExisting = new LinkedHashMap<String, Object>();
         Map<String, Object> linkDetail = new LinkedHashMap<String, Object>();
         Map<String, Object> linkExisting = new LinkedHashMap<String, Object>();
-        
+
         sourceExisting.put("processed", getStatistics().getSourceProcessed());
         sourceExisting.put("total", totalSourceEntriesStr);
         sourceDetail.put("existing", sourceExisting);
         progressDetail.put("source", sourceDetail);
-        
+
         targetExisting.put("processed", getStatistics().getTargetProcessed());
         targetExisting.put("total", totalTargetEntriesStr);
         targetDetail.put("existing", targetExisting);
         targetDetail.put("created", getStatistics().getTargetCreated());
         progressDetail.put("target", targetDetail);
-        
+
         linkExisting.put("processed", getStatistics().getLinkProcessed());
         linkExisting.put("total", totalLinkEntriesStr);
         linkDetail.put("existing", linkExisting);
@@ -288,8 +308,8 @@ public class ReconciliationContext {
     }
 
     /**
-     * @return the list of all source object ids in the reconciliation scope, 
-     * queried at the outset of reconciliation. 
+     * @return the list of all source object ids in the reconciliation scope,
+     * queried at the outset of reconciliation.
      * Null if no bulk source id query was done.
      */
     public Set<String> getSourceIds() {
@@ -297,8 +317,8 @@ public class ReconciliationContext {
     }
 
     /**
-     * @return the list of all ids in the target object set, 
-     * queried at the outset of reconciliation. 
+     * @return the list of all ids in the target object set,
+     * queried at the outset of reconciliation.
      * Null if no bulk target id query was done.
      */
     public Set<String> getTargetIds() {
@@ -330,7 +350,7 @@ public class ReconciliationContext {
     }
 
     /**
-     * Remove any state from memory that should not be kept 
+     * Remove any state from memory that should not be kept
      * past the completion of the reconciliation run
      */
     private synchronized void cleanupState() {

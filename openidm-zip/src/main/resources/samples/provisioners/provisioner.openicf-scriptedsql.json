@@ -56,7 +56,8 @@
         "updateScriptFileName" : "&{launcher.project.location}/tools/UpdateScript.groovy",
         "syncScriptFileName" : "&{launcher.project.location}/tools/SyncScript.groovy"
     },
-    "syncFailureHandler" : {
+    "syncFailureHandler" : 
+    {
         "maxRetries" : 5,
         "postRetryAction" : "logged-ignore"
     },

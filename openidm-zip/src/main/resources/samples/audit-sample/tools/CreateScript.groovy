@@ -36,7 +36,7 @@ import groovy.sql.DataSet;
 // password: password string, clear text
 // options: a handler to the OperationOptions Map
 
-log.info("Entering {0} Script for {1} with attributes {2}", action, objectClass, attributes);
+// log.info("Entering {0} Script for {1} with attributes {2}", action, objectClass, attributes);
 
 def sql = new Sql(connection);
 //Create must return UID. Let's return the name for now.
@@ -92,7 +92,7 @@ switch ( objectClass ) {
 
     sql.execute("INSERT INTO auditaccess (objectid,activity,ip,principal,roles,status,activitydate,userid) values (?,?,?,?,?,?,?,?)",
         [
-            id, // objectid
+            id,
             attributes.get("activity")?.get(0),
             attributes.get("ip")?.get(0),
             attributes.get("principal")?.get(0),

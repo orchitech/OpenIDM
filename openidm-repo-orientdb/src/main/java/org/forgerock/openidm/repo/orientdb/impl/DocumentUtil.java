@@ -35,7 +35,10 @@ import java.util.Map;
 import java.util.LinkedHashMap;
 import java.util.Set;
 
-import org.forgerock.openidm.objset.ConflictException;
+import org.forgerock.json.fluent.JsonValue;
+import org.forgerock.json.resource.Resource;
+import org.forgerock.json.resource.ConflictException;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -56,6 +59,29 @@ public class DocumentUtil  {
     public final static String ORIENTDB_PRIMARY_KEY = "_openidm_id"; 
     
     /**
+     * Convert to JSON object structures (akin to simple binding), composed of
+     * the basic Java types: {@link Map}, {@link List}, {@link String},
+     * {@link Number}, {@link Boolean}.
+     *
+     * @param doc
+     *            the OrientDB document to convert
+     * @return the Resource with the id, rev, and the doc converted into maps, lists, 
+     *         java types; or null if the doc was null
+     * @throws JsonException
+     *             when the JSON can not be parsed
+     */
+    public static Resource toResource(ODocument doc) {
+        Resource result = null;
+        Map<String, Object> map = toMap(doc);
+        if (map != null) {
+            String id = (String) map.get(Resource.FIELD_CONTENT_ID);
+            String rev = (String) map.get(Resource.FIELD_CONTENT_REVISION);
+            result = new Resource(id, rev, new JsonValue(map));
+        }
+        return result;
+    }
+    
+    /**
      * Convert to JSON object structures (akin to simple binding), 
      * composed of the basic Java types: {@link Map}, {@link List}, {@link String}, {@link Number}, {@link Boolean}.
      * @param doc the OrientDB document to convert
@@ -74,7 +100,7 @@ public class DocumentUtil  {
      * @param topLevel if the passed in document represents a top level orientdb class, or false if it is an embedded document
      * @return the doc converted into maps, lists, java types; or null if the doc was null
      */
-    private static Map<String, Object> toMap(ODocument doc, boolean topLevel) {    	
+    private static Map<String, Object> toMap(ODocument doc, boolean topLevel) {        
         Map<String, Object> result = null;
         if (doc != null) {
             result = new LinkedHashMap<String, Object>(); // TODO: As JSON doesn't, do we really want to maintain order?   
@@ -179,6 +205,22 @@ public class DocumentUtil  {
         }
         return mapToClean;
     }    
+    
+    /**
+     * Convert from JSON object structures (akin to simple binding), 
+     * composed of the basic Java types: {@link Map}, {@link List}, {@link String}, {@link Number}, {@link Boolean}.
+     * to OrientDB document
+     * @param objModel the JSON object structure to convert
+     * @param docToPopulate an optional existing ODocument to update with new values from {@code objModel}
+     * @param db the database to associate with the ODocument
+     * @param orientDocClass the OrientDB class of the ODocument to create
+     * @return the converted orientdb document, or null if objModel was null
+     * @throws ConflictException when the revision in the Object model is invalid
+     */
+    public static ODocument toDocument(JsonValue objModel, ODocument docToPopulate, ODatabaseDocumentTx db, String orientDocClass)
+            throws ConflictException {
+        return toDocument(objModel.asMap(), docToPopulate, db, orientDocClass, false, true);
+    }
     
     /**
      * Convert from JSON object structures (akin to simple binding), 

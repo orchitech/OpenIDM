@@ -1,39 +1,41 @@
-/**
-* DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS HEADER.
-*
-* Copyright (c) 2012 ForgeRock AS. All Rights Reserved
-*
-* The contents of this file are subject to the terms
-* of the Common Development and Distribution License
-* (the License). You may not use this file except in
-* compliance with the License.
-*
-* You can obtain a copy of the License at
-* http://forgerock.org/license/CDDLv1.0.html
-* See the License for the specific language governing
-* permission and limitations under the License.
-*
-* When distributing Covered Code, include this CDDL
-* Header Notice in each file and include the License file
-* at http://forgerock.org/license/CDDLv1.0.html
-* If applicable, add the following below the CDDL Header,
-* with the fields enclosed by brackets [] replaced by
-* your own identifying information:
-* "Portions Copyrighted [year] [name of copyright owner]"
-*
-*/
+/*
+ * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS HEADER.
+ *
+ * Copyright (c) 2011-2014 ForgeRock AS. All Rights Reserved
+ *
+ * The contents of this file are subject to the terms
+ * of the Common Development and Distribution License
+ * (the License). You may not use this file except in
+ * compliance with the License.
+ *
+ * You can obtain a copy of the License at
+ * http://forgerock.org/license/CDDLv1.0.html
+ * See the License for the specific language governing
+ * permission and limitations under the License.
+ *
+ * When distributing Covered Code, include this CDDL
+ * Header Notice in each file and include the License file
+ * at http://forgerock.org/license/CDDLv1.0.html
+ * If applicable, add the following below the CDDL Header,
+ * with the fields enclosed by brackets [] replaced by
+ * your own identifying information:
+ * "Portions Copyrighted [year] [name of copyright owner]"
+ */
+
 package org.forgerock.openidm.sync.impl;
 
 import java.util.Map;
 
 import org.forgerock.json.fluent.JsonValue;
-import org.forgerock.openidm.objset.NotFoundException;
-import org.forgerock.openidm.objset.ObjectSet;
-import org.forgerock.openidm.objset.ObjectSetException;
+import org.forgerock.json.resource.ConnectionFactory;
+import org.forgerock.json.resource.NotFoundException;
+import org.forgerock.json.resource.ReadRequest;
+import org.forgerock.json.resource.Requests;
+import org.forgerock.json.resource.ResourceException;
+import org.forgerock.json.resource.ServerContext;
 import org.forgerock.openidm.smartevent.EventEntry;
 import org.forgerock.openidm.smartevent.Name;
 import org.forgerock.openidm.smartevent.Publisher;
-import org.forgerock.openidm.sync.SynchronizationException;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -41,15 +43,15 @@ import org.slf4j.LoggerFactory;
 /**
  * Loads and caches the object only once on demand.
  * This class is not thread safe.
- * 
+ *
  * @author Laszlo
  * @author aegloff
  */
-public class LazyObjectAccessor {    
+public class LazyObjectAccessor {
     private static final Logger logger = LoggerFactory.getLogger(ObjectMapping.class);
-    
+
     public static final Name EVENT_READ_OBJ = Name.get("openidm/internal/discovery-engine/sync/read-object");
-    
+
     private SynchronizationService service;
     private JsonValue object = null;       // The object once loaded, or null if not found
     private boolean loaded = false;        // Whether it considers its state as loaded/initialized
@@ -63,8 +65,8 @@ public class LazyObjectAccessor {
      * @param localId the unqualified part of the object id
      * @param value the object value
      */
-    public LazyObjectAccessor(SynchronizationService service, String componentContext, 
-            String localId, JsonValue value) {
+    public LazyObjectAccessor(SynchronizationService service, String componentContext,
+                              String localId, JsonValue value) {
         this.service = service;
         this.object = value;
         this.componentContext = componentContext;
@@ -78,8 +80,8 @@ public class LazyObjectAccessor {
      * @param componentContext the component qualifier of the object id
      * @param localId the unqualified part of the object id
      */
-    public LazyObjectAccessor(SynchronizationService service, String componentContext, 
-            String localId) {
+    public LazyObjectAccessor(SynchronizationService service, String componentContext,
+                              String localId) {
         this.service = service;
         this.componentContext = componentContext;
         this.localId = localId;
@@ -87,17 +89,17 @@ public class LazyObjectAccessor {
 
     /**
      * @return the object value, null if the object does not exist.
-     * This may trigger a load on demand 
+     * This may trigger a load on demand
      * if it has not been loaded already.
-     * 
-     * @throws SynchronizationException if loading the object failed 
+     *
+     * @throws SynchronizationException if loading the object failed
      * for reasons other than just not finding the object.
      */
     public JsonValue getObject() throws SynchronizationException {
         if (!loaded) {
             try {
                 // If not found, the object will be null
-                object = rawReadObject(service.getRouter(), getQualifiedId());
+                object = rawReadObject(service.getRouter(), service.getConnectionFactory(), getQualifiedId());
             } catch (SynchronizationException ex) {
                 throw ex; // being explicit that this would not be considered loaded
             }
@@ -105,9 +107,9 @@ public class LazyObjectAccessor {
         }
         return object;
     }
-    
+
     /**
-     * @return whether the object state has been loaded/initialized. 
+     * @return whether the object state has been loaded/initialized.
      * This also is true if an object is not found, and the object value hence is null.
      */
     public boolean isLoaded() {
@@ -128,11 +130,11 @@ public class LazyObjectAccessor {
     public String getLocalId() {
         return localId;
     }
-    
+
     /**
      * Tries to retrieve the object directly from where it is stored.
      * Does not take into account any cached/lazy loaded object in this class.
-     * 
+     *
      * Typically access to objects should be through {@code getObject()} instead,
      * which can support the lazy/cached loading.
      *
@@ -141,35 +143,36 @@ public class LazyObjectAccessor {
      * @throws SynchronizationException if retrieving the object failed
      * @return the object value if found, null if not found
      */
-    public static JsonValue rawReadObject(ObjectSet router, String id) throws SynchronizationException {
+    public static JsonValue rawReadObject(ServerContext router, ConnectionFactory connectionFactory, String id) throws SynchronizationException {
         if (id == null) {
             throw new NullPointerException("Identifier passed to readObject is null");
         }
         EventEntry measure = Publisher.start(EVENT_READ_OBJ, null, id);
         try {
-            JsonValue result = new JsonValue(router.read(id));
+            ReadRequest r = Requests.newReadRequest(id);
+            JsonValue result = connectionFactory.getConnection().read(router,r).getContent();
             measure.setResult(result);
             return result;
         } catch (NotFoundException nfe) { // target not found results in null
             return null;
-        } catch (ObjectSetException ose) {
+        } catch (ResourceException ose) {
             logger.warn("Failed to read target object", ose);
             throw new SynchronizationException(ose);
         } finally {
             measure.end();
         }
     }
-    
+
     /**
      * @return The qualified identifier, qualified with the component context
      */
     public String getQualifiedId() {
         return qualifiedId(componentContext, localId);
     }
-    
+
     /**
      * @param componentContext the resource component name the localId is relative to
-     * @param the local identifier within the component context
+     * @param localId local identifier within the component context
      * @return The qualified identifier, qualified with the component context
      */
     public static String qualifiedId(String componentContext, String localId) {

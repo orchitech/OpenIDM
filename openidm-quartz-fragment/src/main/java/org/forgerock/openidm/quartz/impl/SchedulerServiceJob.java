@@ -1,7 +1,7 @@
 /**
 * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS HEADER.
 *
-* Copyright (c) 2012 ForgeRock AS. All Rights Reserved
+* Copyright (c) 2012-2014 ForgeRock AS. All Rights Reserved
 *
 * The contents of this file are subject to the terms
 * of the Common Development and Distribution License
@@ -29,9 +29,11 @@ import java.util.HashMap;
 import java.util.Map;
 
 import org.forgerock.json.fluent.JsonValue;
-import org.forgerock.json.resource.JsonResourceContext;
-import org.forgerock.openidm.config.InvalidException;
-import org.forgerock.openidm.objset.ObjectSetContext;
+import org.forgerock.json.resource.Context;
+import org.forgerock.json.resource.RootContext;
+import org.forgerock.json.resource.SecurityContext;
+import org.forgerock.json.resource.ServerContext;
+import org.forgerock.openidm.config.enhanced.InvalidException;
 import org.forgerock.openidm.util.LogUtil;
 import org.forgerock.openidm.util.LogUtil.LogLevel;
 import org.osgi.framework.BundleContext;
@@ -73,18 +75,17 @@ public class SchedulerServiceJob implements Job {
      * a request context via the router. This does not create a faux request context; that is
      * incumbent on the invoked service to establish if necessary.
      */
-    private JsonValue newSchedulerContext(Map<String, Object> ssc) {
-        JsonValue context = JsonResourceContext.newContext("scheduler", JsonResourceContext.newRootContext());
+    private ServerContext newSchedulerContext(Map<String, Object> ssc) {
         HashMap<String, Object> security = new HashMap<String, Object>();
         security.put("username", ssc.get(ScheduledService.INVOKER_NAME));
-        context.put("security", security);
-        context.put("scheduled-time", ssc.get(ScheduledService.SCHEDULED_FIRE_TIME));
-        context.put("actual-time", ssc.get(ScheduledService.ACTUAL_FIRE_TIME));
-        context.put("next-time", ssc.get(ScheduledService.NEXT_FIRE_TIME));
-        context.put("invoke-service", ssc.get(ScheduledService.CONFIGURED_INVOKE_SERVICE));
-        context.put("invoke-context", ssc.get(ScheduledService.CONFIGURED_INVOKE_CONTEXT));
-        context.put("invoke-log-level",  ssc.get(ScheduledService.CONFIGURED_INVOKE_LOG_LEVEL));
-        return context;
+        security.put("security", security);
+        security.put("scheduled-time", ssc.get(ScheduledService.SCHEDULED_FIRE_TIME));
+        security.put("actual-time", ssc.get(ScheduledService.ACTUAL_FIRE_TIME));
+        security.put("next-time", ssc.get(ScheduledService.NEXT_FIRE_TIME));
+        security.put("invoke-service", ssc.get(ScheduledService.CONFIGURED_INVOKE_SERVICE));
+        security.put("invoke-context", ssc.get(ScheduledService.CONFIGURED_INVOKE_CONTEXT));
+        security.put("invoke-log-level", ssc.get(ScheduledService.CONFIGURED_INVOKE_LOG_LEVEL));
+        return new ServerContext(new SecurityContext(new RootContext(), (String) ssc.get(ScheduledService.INVOKER_NAME), security));
     }
 
     public void execute(JobExecutionContext context) throws JobExecutionException {
@@ -95,7 +96,6 @@ public class SchedulerServiceJob implements Job {
 
         String invokeService = (String) data.get(ScheduledService.CONFIGURED_INVOKE_SERVICE);
         Object invokeContext = data.get(ScheduledService.CONFIGURED_INVOKE_CONTEXT);
-        //ServiceTracker scheduledServiceTracker = (ServiceTracker) data.get(SchedulerService.SERVICE_TRACKER);
         ServiceTracker scheduledServiceTracker = (ServiceTracker) getServiceTracker(invokeService);
 
 

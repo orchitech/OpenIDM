@@ -1,7 +1,7 @@
 /** 
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS HEADER.
  *
- * Copyright (c) 2012 ForgeRock AS. All Rights Reserved
+ * Copyright (c) 2012-2014 ForgeRock AS. All Rights Reserved
  *
  * The contents of this file are subject to the terms
  * of the Common Development and Distribution License
@@ -22,22 +22,28 @@
  * "Portions Copyrighted [year] [name of copyright owner]"
  */
 
-var params =  {},
+var fullResourcePath,
     result,
     enforce;
-params._action = "validateObject";
-params._caller = "filterEnforcer";
 
 enforce = identityServer.getProperty("openidm.policy.enforcement.enabled", "true", true);
 
-if (request.id.indexOf("policy/") !== 0 && enforce !== "false") {
-    result = openidm.action("policy/" + request.id, params, request.value);
-    
+if (request.resourceName.indexOf("policy/") !== 0 && enforce !== "false") {
+    if (request.method === "create") {
+        fullResourcePath = request.resourceName + "/" + (request.newResourceId !== null ? request.newResourceId : "*")
+    } else {
+        fullResourcePath = request.resourceName;
+    }
+
+    result = openidm.action("policy/" + fullResourcePath, "validateObject", { "external" : "true" }, request.content);
+
     if (!result.result) {
-        throw { 
-            "openidmCode" : 403, 
+        throw {
+            "code" : 403,
             "message" : "Policy validation failed",
-            "detail" : result 
+            "detail" : result
         };
     }
 }
+
+

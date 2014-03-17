@@ -1,7 +1,7 @@
 /*
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS HEADER.
  *
- * Copyright © 2012 ForgeRock Inc. All rights reserved.
+ * Copyright © 2012-2014 ForgeRock Inc. All rights reserved.
  *
  * The contents of this file are subject to the terms
  * of the Common Development and Distribution License
@@ -26,6 +26,8 @@ package org.forgerock.openidm.workflow.activiti.impl;
 import java.io.File;
 import java.io.IOException;
 import java.net.URLDecoder;
+import java.sql.SQLException;
+import java.sql.Statement;
 import java.util.ArrayList;
 import java.util.Dictionary;
 import java.util.Hashtable;
@@ -38,6 +40,7 @@ import javax.sql.DataSource;
 import javax.transaction.TransactionManager;
 import org.activiti.engine.ProcessEngine;
 import org.activiti.engine.delegate.JavaDelegate;
+import org.activiti.engine.impl.ProcessEngineImpl;
 import org.activiti.engine.impl.cfg.JtaProcessEngineConfiguration;
 import org.activiti.engine.impl.interceptor.SessionFactory;
 import org.activiti.engine.impl.scripting.ResolverFactory;
@@ -47,17 +50,16 @@ import org.activiti.osgi.blueprint.ProcessEngineFactory;
 import org.apache.felix.scr.annotations.*;
 import org.forgerock.json.fluent.JsonPointer;
 import org.forgerock.json.fluent.JsonValue;
-import org.forgerock.json.resource.JsonResource;
-import org.forgerock.json.resource.JsonResourceException;
-import org.forgerock.openidm.config.EnhancedConfig;
-import org.forgerock.openidm.config.JSONEnhancedConfig;
-import org.forgerock.openidm.config.InvalidException;
+import org.forgerock.json.resource.*;
+import org.forgerock.openidm.config.enhanced.EnhancedConfig;
+import org.forgerock.openidm.config.enhanced.InvalidException;
+import org.forgerock.openidm.config.enhanced.JSONEnhancedConfig;
 import org.forgerock.openidm.core.IdentityServer;
 import org.forgerock.openidm.core.ServerConstants;
-import org.forgerock.openidm.objset.JsonResourceObjectSet;
-import org.forgerock.openidm.objset.ObjectSetContext;
-import org.forgerock.openidm.objset.ServiceUnavailableException;
-import org.forgerock.openidm.workflow.HttpRemoteJsonResource;
+import org.forgerock.openidm.crypto.CryptoService;
+import org.forgerock.openidm.router.RouteService;
+import org.forgerock.openidm.util.ResourceUtil;
+import org.forgerock.script.ScriptRegistry;
 import org.forgerock.openidm.workflow.activiti.impl.session.OpenIDMSessionFactory;
 import org.h2.jdbcx.JdbcDataSource;
 import org.osgi.framework.Constants;
@@ -78,26 +80,22 @@ import org.slf4j.LoggerFactory;
 @Properties({
     @Property(name = Constants.SERVICE_DESCRIPTION, value = "Workflow Service"),
     @Property(name = Constants.SERVICE_VENDOR, value = ServerConstants.SERVER_VENDOR_NAME),
-    @Property(name = ServerConstants.ROUTER_PREFIX, value = ActivitiServiceImpl.ROUTER_PREFIX)})
+    @Property(name = ServerConstants.ROUTER_PREFIX, value = {
+        ActivitiServiceImpl.ROUTER_PREFIX})})
 @References({
-    @Reference(name = "JavaDelegateServiceReference",
-    referenceInterface = JavaDelegate.class,
-    bind = "bindService",
-    unbind = "unbindService",
-    cardinality = ReferenceCardinality.OPTIONAL_MULTIPLE,
-    policy = ReferencePolicy.DYNAMIC),
-    @Reference(name = "ref_ActivitiServiceImpl_JsonResourceRouterService",
-    referenceInterface = JsonResource.class,
-    bind = "bindRouter",
-    unbind = "unbindRouter",
-    cardinality = ReferenceCardinality.OPTIONAL_UNARY,
-    policy = ReferencePolicy.DYNAMIC,
-    target = "(service.pid=org.forgerock.openidm.router)")})
-public class ActivitiServiceImpl implements JsonResource {
+    @Reference(name = "JavaDelegateServiceReference", referenceInterface = JavaDelegate.class,
+    bind = "bindService", unbind = "unbindService",
+    cardinality = ReferenceCardinality.OPTIONAL_MULTIPLE, policy = ReferencePolicy.DYNAMIC),
+    @Reference(name = "ScriptRegistryService", referenceInterface = ScriptRegistry.class,
+    bind = "bindScriptRegistry", unbind = "unbindScriptRegistry",
+    cardinality = ReferenceCardinality.OPTIONAL_UNARY, policy = ReferencePolicy.DYNAMIC,
+    target = "(service.pid=org.forgerock.openidm.script)")
+})
+public class ActivitiServiceImpl implements RequestHandler {
 
     final static Logger logger = LoggerFactory.getLogger(ActivitiServiceImpl.class);
     public final static String PID = "org.forgerock.openidm.workflow";
-    public final static String ROUTER_PREFIX = "workflow";
+    public final static String ROUTER_PREFIX = "/workflow*";
     // Keys in the JSON configuration
     public static final String CONFIG_ENABLED = "enabled";
     public static final String CONFIG_LOCATION = "location";
@@ -117,30 +115,53 @@ public class ActivitiServiceImpl implements JsonResource {
     public static final String CONFIG_WORKFLOWDIR = "workflowDirectory";
     private String jndiName;
     private boolean selfMadeProcessEngine = true;
-    @Reference(name = "processEngine",
-    referenceInterface = ProcessEngine.class,
-    bind = "bindProcessEngine",
-    unbind = "unbindProcessEngine",
-    cardinality = ReferenceCardinality.OPTIONAL_UNARY,
-    policy = ReferencePolicy.STATIC,
+
+    @Reference(name = "processEngine", referenceInterface = ProcessEngine.class,
+    bind = "bindProcessEngine", unbind = "unbindProcessEngine",
+    cardinality = ReferenceCardinality.OPTIONAL_UNARY, policy = ReferencePolicy.STATIC,
     target = "(!openidm.activiti.engine=true)" //avoid register the self made service
     )
     private ProcessEngine processEngine;
-    @Reference(cardinality = ReferenceCardinality.OPTIONAL_UNARY)
+
+    @Reference(cardinality = ReferenceCardinality.OPTIONAL_UNARY,
+    bind = "bindConfigAdmin", unbind = "unbindConfigAdmin")
     private ConfigurationAdmin configurationAdmin = null;
+
     /**
      * Some need to register a TransactionManager or we need to create one.
      */
-    @Reference
+    @Reference(bind = "bindTransactionManager", unbind = "unbindTransactionManager")
     private TransactionManager transactionManager;
-    @Reference(cardinality = ReferenceCardinality.OPTIONAL_UNARY, target = "(osgi.jndi.service.name=jdbc/openidm)")
+
+    @Reference(cardinality = ReferenceCardinality.OPTIONAL_UNARY,
+    bind = "bindDataSource", unbind = "unbindDataSource",
+    target = "(osgi.jndi.service.name=jdbc/openidm)")
     private DataSource dataSource;
+
+    @Reference(cardinality = ReferenceCardinality.OPTIONAL_UNARY, policy = ReferencePolicy.DYNAMIC,
+            bind = "bindPersistenceConfig", unbind = "unbindPersistenceConfig"
+    )
+    private PersistenceConfig persistenceConfig;
+
+    @Reference(target = "(" + ServerConstants.ROUTER_PREFIX + "=/managed)",
+            bind = "bindRouteService", unbind = "unbindRouteService"
+    )
+    RouteService repositoryRoute;
+
+    @Reference(policy = ReferencePolicy.DYNAMIC,
+            bind = "bindCryptoService", unbind = "unbindCryptoService"
+    )
+    CryptoService cryptoService;
+
+    @Reference(policy = ReferencePolicy.STATIC, target="(service.pid=org.forgerock.openidm.internal)")
+    ConnectionFactory connectionFactory;
+
     private final OpenIDMExpressionManager expressionManager = new OpenIDMExpressionManager();
     private final SharedIdentityService identityService = new SharedIdentityService();
     private final OpenIDMSessionFactory idmSessionFactory = new OpenIDMSessionFactory();
     private ProcessEngineFactory processEngineFactory;
     private Configuration barInstallerConfiguration;
-    private JsonResource activitiResource;
+    private RequestHandler activitiResource;
     //Configuration variables
     private boolean enabled;
     private EngineLocation location = EngineLocation.embedded;
@@ -154,6 +175,41 @@ public class ActivitiServiceImpl implements JsonResource {
     private boolean starttls;
     private String historyLevel;
     private String workflowDir;
+    
+    @Override
+    public void handleAction(ServerContext context, ActionRequest request, ResultHandler<JsonValue> handler) {
+        activitiResource.handleAction(context, request, handler);
+    }
+
+    @Override
+    public void handleCreate(ServerContext context, CreateRequest request, ResultHandler<Resource> handler) {
+        activitiResource.handleCreate(context, request, handler);
+    }
+
+    @Override
+    public void handleDelete(ServerContext context, DeleteRequest request, ResultHandler<Resource> handler) {
+        activitiResource.handleDelete(context, request, handler);
+    }
+
+    @Override
+    public void handlePatch(ServerContext context, PatchRequest request, ResultHandler<Resource> handler) {
+        handler.handleError(ResourceUtil.notSupported(request));
+    }
+
+    @Override
+    public void handleQuery(ServerContext context, QueryRequest request, QueryResultHandler handler) {
+        activitiResource.handleQuery(context, request, handler);
+    }
+
+    @Override
+    public void handleRead(ServerContext context, ReadRequest request, ResultHandler<Resource> handler) {
+        activitiResource.handleRead(context, request, handler);
+    }
+
+    @Override
+    public void handleUpdate(ServerContext context, UpdateRequest request, ResultHandler<Resource> handler) {
+        activitiResource.handleUpdate(context, request, handler);
+    }
 
     public enum EngineLocation {
 
@@ -199,14 +255,14 @@ public class ActivitiServiceImpl implements JsonResource {
                             //initialise the default h2 DataSource
                             JdbcDataSource jdbcDataSource = new org.h2.jdbcx.JdbcDataSource(); //Implement it here. There are examples in the JDBCRepoService
                             File root = IdentityServer.getFileForWorkingPath("db/activiti/database");
-                            jdbcDataSource.setURL("jdbc:h2:file:" + URLDecoder.decode(root.getPath(), "UTF-8") + ";DB_CLOSE_DELAY=1000");
+                            jdbcDataSource.setURL("jdbc:h2:file:" + URLDecoder.decode(root.getPath(), "UTF-8") + ";DB_CLOSE_ON_EXIT=FALSE;DB_CLOSE_DELAY=1000");
                             jdbcDataSource.setUser("sa");
                             configuration.setDatabaseType("h2");
                             configuration.setDataSource(jdbcDataSource);
                         } else {
                             configuration.setDataSource(dataSource);
-                            configuration.setIdentityService(identityService);
                         }
+                        configuration.setIdentityService(identityService);
 
                         configuration.setTransactionManager(transactionManager);
                         configuration.setTransactionsExternallyManaged(true);
@@ -260,9 +316,9 @@ public class ActivitiServiceImpl implements JsonResource {
                         if (null != configurationAdmin) {
                             try {
                                 barInstallerConfiguration = configurationAdmin.createFactoryConfiguration("org.apache.felix.fileinstall", null);
-                                Dictionary props = barInstallerConfiguration.getProperties();
+                                Dictionary<String, String> props = barInstallerConfiguration.getProperties();
                                 if (props == null) {
-                                    props = new Hashtable();
+                                    props = new Hashtable<String, String>();
                                 }
                                 props.put("felix.fileinstall.poll", "2000");
                                 props.put("felix.fileinstall.noInitialDelay", "true");
@@ -276,15 +332,15 @@ public class ActivitiServiceImpl implements JsonResource {
                                 java.util.logging.Logger.getLogger(ActivitiServiceImpl.class.getName()).log(Level.SEVERE, null, ex);
                             }
                         }
-                        activitiResource = new ActivitiResource(processEngine);
+                        activitiResource = new ActivitiResource(processEngine, persistenceConfig);
                         logger.debug("Activiti ProcessEngine is enabled");
                         break;
                     case local: //ProcessEngine is connected by @Reference
-                        activitiResource = new ActivitiResource(processEngine);
+                        activitiResource = new ActivitiResource(processEngine, persistenceConfig);
                         break;
-                    case remote: //fetch remote connection parameters
-                        activitiResource = new HttpRemoteJsonResource(url, username, password);
-                        break;
+//                    case remote: //fetch remote connection parameters
+//                        activitiResource = new HttpRemoteJsonResource(url, username, password);
+//                        break;
                     default:
                         throw new InvalidException(CONFIG_LOCATION + " invalid, can not start workflow service.");
                 }
@@ -308,6 +364,25 @@ public class ActivitiServiceImpl implements JsonResource {
                 logger.error("Can not delete org.apache.felix.fileinstall-activiti configuration", e);
             }
             barInstallerConfiguration = null;
+        }
+        if ("h2".equals(((ProcessEngineImpl)processEngine).getProcessEngineConfiguration().getDatabaseType() )) {
+            DataSource h2DdataSource = ((ProcessEngineImpl)processEngine).getProcessEngineConfiguration().getDataSource();
+            java.sql.Connection conn = null;
+            try {
+                conn = h2DdataSource.getConnection();
+                Statement stat = conn.createStatement();
+                stat.execute("SHUTDOWN");
+                stat.close();
+            } catch (SQLException ex) {
+                logger.warn("H2 database failed to stop properly", ex);
+            }
+            if (conn != null) {
+                try {
+                    conn.close();
+                } catch (SQLException ex) {
+                    logger.warn("H2 database failed to stop properly", ex);
+                }
+            }
         }
         if (null != processEngineFactory) {
             try {
@@ -367,15 +442,33 @@ public class ActivitiServiceImpl implements JsonResource {
         }
         logger.info("ProcessEngine stopped.");
     }
-
-    protected void bindRouter(JsonResource router) {
-        this.idmSessionFactory.setRouter(new JsonResourceObjectSet(router));
-        this.identityService.setRouter(router);
+ 
+    protected void bindRouteService(RouteService route) {
+        repositoryRoute = route;
+        this.identityService.setRouter(route);
     }
 
-    protected void unbindRouter(JsonResource router) {
-        this.idmSessionFactory.setRouter(null);
+    protected void unbindRouteService(RouteService route) {
+        repositoryRoute = null;
         this.identityService.setRouter(null);
+    }
+
+    protected void bindScriptRegistry(ScriptRegistry scriptRegistry) {
+        this.idmSessionFactory.setScriptRegistry(scriptRegistry);
+    }
+
+    protected void unbindScriptRegistry(ScriptRegistry scriptRegistry) {
+        this.idmSessionFactory.setScriptRegistry(null);
+    }
+
+    protected void bindPersistenceConfig(PersistenceConfig config) {
+        this.persistenceConfig = config;
+        this.idmSessionFactory.setPersistenceConfig(config);
+    }
+
+    protected void unbindPersistenceConfig(PersistenceConfig config) {
+        this.persistenceConfig = null;
+        this.idmSessionFactory.setPersistenceConfig(null);
     }
 
     public void bindService(JavaDelegate delegate, Map props) {
@@ -386,17 +479,48 @@ public class ActivitiServiceImpl implements JsonResource {
         expressionManager.unbindService(delegate, props);
     }
 
-    @Override
-    public JsonValue handle(JsonValue request) throws JsonResourceException {
-        if (activitiResource != null) {
-            try{
-                ObjectSetContext.push(request);
-                return activitiResource.handle(request);
-            } finally {
-                ObjectSetContext.pop();
-            }
-        } else {
-            throw new ServiceUnavailableException("No workflow resource is available");
-        }
+    public void bindTransactionManager(TransactionManager manager) {
+        transactionManager = manager;
     }
+
+    public void unbindTransactionManager(TransactionManager manager) {
+        transactionManager = null;
+    }
+
+    public void bindConfigAdmin(ConfigurationAdmin configAdmin) {
+        this.configurationAdmin = configAdmin;
+    }
+
+    public void unbindConfigAdmin(ConfigurationAdmin configAdmin) {
+        this.configurationAdmin = null;
+    }
+
+    public void bindDataSource(DataSource dataSource) {
+        this.dataSource = dataSource;
+    }
+
+    public void unbindDataSource(DataSource dataSource) {
+        this.dataSource = null;
+    }
+
+    public void bindCryptoService(final CryptoService service) {
+        cryptoService = service;
+        identityService.setCryptoService(service);
+    }
+
+    public void unbindCryptoService(final CryptoService service) {
+        cryptoService = null;
+        identityService.setCryptoService(null);
+    }
+
+    protected void bindConnectionFactory(ConnectionFactory factory) {
+        connectionFactory = factory;
+        this.identityService.setConnectionFactory(factory);
+    }
+
+    protected void unbindConnectionFactory(ConnectionFactory factory) {
+        connectionFactory = null;
+        this.identityService.setConnectionFactory(null);
+    }
+
 }

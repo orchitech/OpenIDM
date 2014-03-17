@@ -9,9 +9,9 @@
  * When distributing Covered Software, include this CDDL Header Notice in each file and include
  * the License file at legal/CDDLv1.0.txt. If applicable, add the following below the CDDL
  * Header, with the fields enclosed by brackets [] replaced by your own identifying
- * information: "Portions Copyrighted [year] [name of copyright owner]".
+ * information: "Portions copyright [year] [name of copyright owner]".
  *
- * Copyright � 2012-2013 ForgeRock AS. All rights reserved.
+ * Copyright 2013 ForgeRock Inc.
  */
 
 package org.forgerock.openidm.servletregistration.impl;
@@ -27,15 +27,16 @@ import org.apache.felix.scr.annotations.Reference;
 import org.apache.felix.scr.annotations.ReferenceCardinality;
 import org.apache.felix.scr.annotations.ReferencePolicy;
 import org.forgerock.json.fluent.JsonValue;
-import org.forgerock.openidm.config.JSONEnhancedConfig;
+import org.forgerock.openidm.config.enhanced.JSONEnhancedConfig;
 import org.forgerock.openidm.servletregistration.RegisteredFilter;
 import org.forgerock.openidm.servletregistration.ServletRegistration;
+import static org.forgerock.openidm.servletregistration.ServletRegistration.SERVLET_FILTER_SYSTEM_PROPERTIES;
 import org.osgi.service.component.ComponentContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * Takes configuration to register and de-register configured servlet filters, 
+ * Takes configuration to register and de-register configured servlet filters,
  * with support to load the filter or supporting classes off a defined class path.
  *
  * @author aegloff
@@ -50,6 +51,7 @@ import org.slf4j.LoggerFactory;
 public class ServletFilterConfiguration {
     private final static Logger logger = LoggerFactory.getLogger(ServletFilterConfiguration.class);
 
+    // Handle to registered servlet filter
     private RegisteredFilter registeredFilter;
 
     // Original setting of system properties
@@ -88,7 +90,7 @@ public class ServletFilterConfiguration {
         logger.info("Successfully registered servlet filter {}", context.getProperties());
 
         origSystemProperties = new HashMap<String, String>();
-        JsonValue rawSystemProperties = config.get("systemProperties");
+        JsonValue rawSystemProperties = config.get(SERVLET_FILTER_SYSTEM_PROPERTIES);
         for (String key : rawSystemProperties.keys()) {
             String prev = System.setProperty(key, rawSystemProperties.get(key).asString());
             // null value is used to keep track of properties that weren't set before
@@ -125,4 +127,3 @@ public class ServletFilterConfiguration {
         logger.debug("Deactivated {}", context);
     }
 }
-

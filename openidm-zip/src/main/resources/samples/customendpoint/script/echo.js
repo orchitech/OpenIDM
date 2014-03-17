@@ -1,3 +1,1 @@
-(function () { 
-    return request; 
-}());
+request.content.getObject();

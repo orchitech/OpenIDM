@@ -40,7 +40,7 @@ define("org/forgerock/openidm/ui/user/UserRegistrationView", [
 ], function(AbstractView, validatorsManager, uiUtils, userDelegate, eventManager, constants, conf, countryStateDelegate, securityQuestionDelegate) {
     var UserRegistrationView = AbstractView.extend({
         template: "templates/user/UserRegistrationTemplate.html",
-        baseTemplate: "templates/user/LoginBaseTemplate.html",
+        baseTemplate: "templates/common/MediumBaseTemplate.html",
         delegate: userDelegate,
         events: {
             "click input[type=submit]": "formSubmit",
@@ -67,13 +67,13 @@ define("org/forgerock/openidm/ui/user/UserRegistrationView", [
                 delete data.passwordConfirm;
                 //data.userName = data.email.toLowerCase();
                 
-                if(this.siteImageFlow) {
+                if (this.siteImageFlow) {
                     element = this.siteImageFlow.getActiveItem().element;
                     data.siteImage = $(element).children().attr("data-site-image");
                 }
                 
                 console.log("ADDING USER: " + JSON.stringify(data));                
-                this.delegate.createEntity(null,data, function(user) {
+                this.delegate.createEntity(null, data, function(user) {
                     eventManager.sendEvent(constants.EVENT_USER_SUCCESSFULLY_REGISTERED, { user: data, selfRegistration: true });                    
                 }, _.bind(function(response) {
                     console.warn(response);
@@ -96,7 +96,7 @@ define("org/forgerock/openidm/ui/user/UserRegistrationView", [
             conf.setProperty("gotoURL", null);
             
             this.parentRender(function() {
-                validatorsManager.bindValidators(this.$el,this.delegate.baseEntity + "/");
+                validatorsManager.bindValidators(this.$el,this.delegate.baseEntity + "/*");
                 this.unlock();
                 
                 if (conf.globalData.securityQuestions) {

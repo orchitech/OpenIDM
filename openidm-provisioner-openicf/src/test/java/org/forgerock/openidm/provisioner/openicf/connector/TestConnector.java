@@ -1,7 +1,7 @@
 /*
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS HEADER.
  *
- * Copyright © 2011 ForgeRock AS. All rights reserved.
+ * Copyright (c) 2011-2013 ForgeRock AS. All Rights Reserved
  *
  * The contents of this file are subject to the terms
  * of the Common Development and Distribution License
@@ -20,8 +20,8 @@
  * with the fields enclosed by brackets [] replaced by
  * your own identifying information:
  * "Portions Copyrighted [year] [name of copyright owner]"
- * $Id$
  */
+
 package org.forgerock.openidm.provisioner.openicf.connector;
 
 import org.identityconnectors.common.script.Script;
@@ -56,7 +56,7 @@ public class TestConnector implements PoolableConnector, AuthenticateOp, CreateO
         SchemaOp, ScriptOnConnectorOp, ScriptOnResourceOp, SearchOp<String>, SyncOp, TestOp, UpdateAttributeValuesOp, UpdateOp, AttributeNormalizer {
     @Override
     public Attribute normalizeAttribute(ObjectClass oclass, Attribute attribute) {
-        return null;  //To change body of implemented methods use File | Settings | File Templates.
+        return null;
     }
 
     /**
@@ -72,7 +72,7 @@ public class TestConnector implements PoolableConnector, AuthenticateOp, CreateO
      * <p/>
      * The developer is of course encourage to try and throw the most
      * informative exception as possible. In that regards there are several
-     * exceptions provided in the exceptions package. For instance one of the
+     * exceptions provided in the exceptions package. For newBuilder one of the
      * most common is {@link org.identityconnectors.framework.common.exceptions.InvalidPasswordException}.
      *
      * @param objectClass The object class to use for authenticate.
@@ -89,7 +89,7 @@ public class TestConnector implements PoolableConnector, AuthenticateOp, CreateO
      */
     @Override
     public Uid authenticate(ObjectClass objectClass, String username, GuardedString password, OperationOptions options) {
-        return null;  //To change body of implemented methods use File | Settings | File Templates.
+        return null;
     }
 
     /**
@@ -97,7 +97,7 @@ public class TestConnector implements PoolableConnector, AuthenticateOp, CreateO
      * <p/>
      * <p>A connector can spend a large amount of time in the pool before
      * being used. This method is intended to check if the connector is
-     * alive and operations can be invoked on it (for instance, an implementation
+     * alive and operations can be invoked on it (for newBuilder, an implementation
      * would check that the connector's physical connection to the resource
      * has not timed out).</p>
      * <p/>
@@ -114,7 +114,7 @@ public class TestConnector implements PoolableConnector, AuthenticateOp, CreateO
      */
     @Override
     public void checkAlive() {
-        //To change body of implemented methods use File | Settings | File Templates.
+
     }
 
     /**
@@ -124,21 +124,21 @@ public class TestConnector implements PoolableConnector, AuthenticateOp, CreateO
      */
     @Override
     public Configuration getConfiguration() {
-        return null;  //To change body of implemented methods use File | Settings | File Templates.
+        return null;
     }
 
     /**
-     * Initialize the connector with its configuration. For instance in a JDBC
+     * Initialize the connector with its configuration. For newBuilder in a JDBC
      * {@link org.identityconnectors.framework.spi.Connector} this would include the database URL, password, and
      * user.
      *
-     * @param cfg instance of the {@link org.identityconnectors.framework.spi.Configuration} object implemented by
+     * @param cfg newBuilder of the {@link org.identityconnectors.framework.spi.Configuration} object implemented by
      *            the {@link org.identityconnectors.framework.spi.Connector} developer and populated with information
      *            in order to initialize the {@link org.identityconnectors.framework.spi.Connector}.
      */
     @Override
     public void init(Configuration cfg) {
-        //To change body of implemented methods use File | Settings | File Templates.
+
     }
 
     /**
@@ -146,7 +146,7 @@ public class TestConnector implements PoolableConnector, AuthenticateOp, CreateO
      */
     @Override
     public void dispose() {
-        //To change body of implemented methods use File | Settings | File Templates.
+
     }
 
     /**
@@ -166,13 +166,13 @@ public class TestConnector implements PoolableConnector, AuthenticateOp, CreateO
      *                If the caller passes null, the framework will convert this into
      *                an empty set of options, so SPI need not worry
      *                about this ever being null.
-     * @return the unique id for the object that is created. For instance in
+     * @return the unique id for the object that is created. For newBuilder in
      *         LDAP this would be the 'dn', for a database this would be the
      *         primary key, and for 'ActiveDirectory' this would be the GUID.
      */
     @Override
     public Uid create(ObjectClass oclass, Set<Attribute> attrs, OperationOptions options) {
-        return null;  //To change body of implemented methods use File | Settings | File Templates.
+        return null;
     }
 
     /**
@@ -190,7 +190,7 @@ public class TestConnector implements PoolableConnector, AuthenticateOp, CreateO
      */
     @Override
     public void delete(ObjectClass objClass, Uid uid, OperationOptions options) {
-        //To change body of implemented methods use File | Settings | File Templates.
+
     }
 
     /**
@@ -212,7 +212,7 @@ public class TestConnector implements PoolableConnector, AuthenticateOp, CreateO
      * <p/>
      * The developer is of course encourage to try and throw the most
      * informative exception as possible. In that regards there are several
-     * exceptions provided in the exceptions package. For instance one of the
+     * exceptions provided in the exceptions package. For newBuilder one of the
      * most common is {@link org.identityconnectors.framework.common.exceptions.UnknownUidException}.
      *
      * @param objectClass The object class to resolve the username for.
@@ -229,7 +229,7 @@ public class TestConnector implements PoolableConnector, AuthenticateOp, CreateO
      */
     @Override
     public Uid resolveUsername(ObjectClass objectClass, String username, OperationOptions options) {
-        return null;  //To change body of implemented methods use File | Settings | File Templates.
+        return null;
     }
 
     /**
@@ -398,7 +398,7 @@ public class TestConnector implements PoolableConnector, AuthenticateOp, CreateO
      */
     @Override
     public FilterTranslator<String> createFilterTranslator(ObjectClass oclass, OperationOptions options) {
-        return null;  //To change body of implemented methods use File | Settings | File Templates.
+        return null;
     }
 
     /**
@@ -415,7 +415,7 @@ public class TestConnector implements PoolableConnector, AuthenticateOp, CreateO
      *
      * @param oclass  The object class for the search. Will never be null.
      * @param query   The native query to run. A value of null means
-     *                "return every instance of the given object class".
+     *                "return every newBuilder of the given object class".
      * @param handler Results should be returned to this handler
      * @param options Additional options that impact the way this operation is run.
      *                If the caller passes null, the framework will convert this into
@@ -446,7 +446,7 @@ public class TestConnector implements PoolableConnector, AuthenticateOp, CreateO
      * that can be used to resume reading events <i>starting from that point in the event stream</i>.
      * In typical usage, a client will save the token from the final synchronization event
      * that was received from one invocation of this {@code sync()} method
-     * and then pass that token into that client's next call to this {@code sync()} method.
+     * and then pass that token into that client's buildNext call to this {@code sync()} method.
      * This allows a client to "pick up where he left off" in receiving synchronization events.
      * However, a client can pass the token from <i>any</i> synchronization event
      * into a subsequent invocation of this {@code sync()} method.
@@ -475,7 +475,7 @@ public class TestConnector implements PoolableConnector, AuthenticateOp, CreateO
      */
     @Override
     public void sync(ObjectClass objClass, SyncToken token, SyncResultsHandler handler, OperationOptions options) {
-        //To change body of implemented methods use File | Settings | File Templates.
+
     }
 
     /**
@@ -496,7 +496,7 @@ public class TestConnector implements PoolableConnector, AuthenticateOp, CreateO
      */
     @Override
     public SyncToken getLatestSyncToken(ObjectClass objClass) {
-        return null;  //To change body of implemented methods use File | Settings | File Templates.
+        return null;
     }
 
     /**
@@ -509,7 +509,7 @@ public class TestConnector implements PoolableConnector, AuthenticateOp, CreateO
      */
     @Override
     public void test() {
-        //To change body of implemented methods use File | Settings | File Templates.
+
     }
 
     /**
@@ -543,7 +543,7 @@ public class TestConnector implements PoolableConnector, AuthenticateOp, CreateO
      */
     @Override
     public Uid addAttributeValues(ObjectClass objclass, Uid uid, Set<Attribute> valuesToAdd, OperationOptions options) {
-        return null;  //To change body of implemented methods use File | Settings | File Templates.
+        return null;
     }
 
     /**
@@ -576,7 +576,7 @@ public class TestConnector implements PoolableConnector, AuthenticateOp, CreateO
      */
     @Override
     public Uid removeAttributeValues(ObjectClass objclass, Uid uid, Set<Attribute> valuesToRemove, OperationOptions options) {
-        return null;  //To change body of implemented methods use File | Settings | File Templates.
+        return null;
     }
 
     /**
@@ -618,6 +618,6 @@ public class TestConnector implements PoolableConnector, AuthenticateOp, CreateO
      */
     @Override
     public Uid update(ObjectClass objclass, Uid uid, Set<Attribute> replaceAttributes, OperationOptions options) {
-        return null;  //To change body of implemented methods use File | Settings | File Templates.
+        return null;
     }
 }

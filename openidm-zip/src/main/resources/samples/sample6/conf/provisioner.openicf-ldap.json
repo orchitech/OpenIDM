@@ -3,7 +3,7 @@
    "connectorRef" :
       {
           "bundleName"    : "org.forgerock.openicf.connectors.ldap-connector",
-          "bundleVersion" : "1.1.1.0",
+          "bundleVersion" : "1.1.1.2",
           "connectorName" : "org.identityconnectors.ldap.LdapConnector"
       },
    "poolConfigOption" :
@@ -116,7 +116,7 @@
                      "cn" :
                         {
                            "type" : "string",
-                           "nativeName" : "cn",
+                           "nativeName" : "__NAME__",
                            "nativeType" : "string"
                         },
                      "description" :

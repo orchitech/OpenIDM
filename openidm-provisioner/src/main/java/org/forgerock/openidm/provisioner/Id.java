@@ -33,7 +33,8 @@ import java.net.URLDecoder;
 import java.net.URLEncoder;
 
 import org.apache.commons.lang3.StringUtils;
-import org.forgerock.json.resource.JsonResourceException;
+import org.forgerock.json.resource.BadRequestException;
+import org.forgerock.json.resource.ResourceException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -75,12 +76,12 @@ public class Id {
     private String objectType;
     private String localId = null;
 
-    public Id(String systemName, String objectType) throws JsonResourceException {
+    public Id(String systemName, String objectType) throws ResourceException {
         if (StringUtils.isBlank(systemName)) {
-            throw new JsonResourceException(400, "System name can not be blank");
+            throw new BadRequestException("System name can not be blank");
         }
         if (StringUtils.isBlank(objectType)) {
-            throw new JsonResourceException(400, "Object type can not be blank");
+            throw new BadRequestException("Object type can not be blank");
         }
         try {
             this.baseURI = new URI("");
@@ -88,23 +89,23 @@ public class Id {
             this.objectType = URLDecoder.decode(objectType, CHARACTER_ENCODING_UTF_8);
         } catch (URISyntaxException e) {
             // Should never happen.
-            throw new UndeclaredThrowableException(e);
+            throw new BadRequestException(e.getMessage(), e);
         } catch (UnsupportedEncodingException e) {
             // Should never happen.
-            throw new UndeclaredThrowableException(e);
+            throw new BadRequestException(e.getMessage(), e);
         }
 
     }
 
-    public Id(String systemName, String objectType, String localId) throws JsonResourceException {
+    public Id(String systemName, String objectType, String localId) throws ResourceException {
         if (StringUtils.isBlank(systemName)) {
-            throw new JsonResourceException(400, "System name can not be blank");
+            throw new BadRequestException("System name can not be blank");
         }
         if (StringUtils.isBlank(objectType)) {
-            throw new JsonResourceException(400, "Object type can not be blank");
+            throw new BadRequestException("Object type can not be blank");
         }
         if (StringUtils.isBlank(localId)) {
-            throw new JsonResourceException(400, "Object id can not be blank");
+            throw new BadRequestException("Object id can not be blank");
         }
         try {
             this.baseURI = new URI("");
@@ -113,17 +114,17 @@ public class Id {
             this.localId = URLDecoder.decode(localId, CHARACTER_ENCODING_UTF_8);
         } catch (URISyntaxException e) {
             // Should never happen.
-            throw new UndeclaredThrowableException(e);
+            throw new BadRequestException(e.getMessage(), e);
         } catch (UnsupportedEncodingException e) {
             // Should never happen.
-            throw new UndeclaredThrowableException(e);
+            throw new BadRequestException(e.getMessage(), e);
         }
     }
 
     @SuppressWarnings("fallthrough")
-    public Id(String id) throws JsonResourceException {
+    public Id(String id) throws ResourceException {
         if (StringUtils.isBlank(id)) {
-            throw new JsonResourceException(400, "Id can not be blank");
+            throw new BadRequestException("Id can not be blank");
         }
         int index = id.indexOf(SYSTEM_BASE);
         String relativeId = id;
@@ -142,15 +143,15 @@ public class Id {
                         systemName = URLDecoder.decode(segments[0], CHARACTER_ENCODING_UTF_8);
                 }
             } else {
-                throw new JsonResourceException(400, "Invalid number of tokens in ID " + id);
+                throw new BadRequestException("Invalid number of tokens in ID " + id);
             }
             this.baseURI = new URI("");
         } catch (UnsupportedEncodingException e) {
             // Should never happen.
-            throw new UndeclaredThrowableException(e);
+            throw new BadRequestException(e.getMessage(), e);
         } catch (URISyntaxException e) {
             // Should never happen.
-            throw new UndeclaredThrowableException(e);
+            throw new BadRequestException(e.getMessage(), e);
         }
     }
 
@@ -166,19 +167,17 @@ public class Id {
         return systemName;
     }
 
-    public Id expectObjectId() throws JsonResourceException {
+    public Id expectObjectId() throws ResourceException {
         if (StringUtils.isBlank(localId)) {
-            JsonResourceException ex =
-                    new JsonResourceException(400,
-                            "This id instance does not qualified to identify a single unique object");
-            TRACE.error("Unqualified id: systemName={}, objectType={}, localId={}", new Object[] {
-                systemName, objectType, localId }, ex);
+            ResourceException ex = new BadRequestException("This id instance does not qualified to identify a single unique object");
+            TRACE.error("Unqualified id: systemName={}, objectType={}, localId={}",
+                    new Object[] { systemName, objectType, localId }, ex);
             throw ex;
         }
         return this;
     }
 
-    public Id resolveLocalId(String uid) throws JsonResourceException {
+    public Id resolveLocalId(String uid) throws ResourceException {
         if (null == uid) {
             return new Id(systemName, objectType);
         } else {

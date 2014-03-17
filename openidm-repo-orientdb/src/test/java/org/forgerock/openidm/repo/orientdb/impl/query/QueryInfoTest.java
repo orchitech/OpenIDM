@@ -37,13 +37,13 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-import org.forgerock.openidm.objset.BadRequestException;
-import org.forgerock.openidm.objset.ConflictException;
+import org.forgerock.json.resource.BadRequestException;
+import org.forgerock.json.resource.ConflictException;
 
 import org.testng.annotations.*;
 import static org.testng.Assert.*;
-import static org.fest.assertions.Assertions.assertThat;
-import static org.fest.assertions.MapAssert.entry;
+import static org.fest.assertions.api.Assertions.assertThat;
+import static org.fest.assertions.api.Assertions.entry;
 
 public class QueryInfoTest {
 

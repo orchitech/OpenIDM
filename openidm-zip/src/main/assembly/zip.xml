@@ -23,6 +23,12 @@
     </formats>
     <fileSets>
         <fileSet>
+            <directory>${basedir}/src/main/resources/security</directory>
+            <outputDirectory>/openidm/security</outputDirectory>
+            <fileMode>0600</fileMode>
+            <directoryMode>0700</directoryMode>
+        </fileSet>        
+        <fileSet>
             <directory>${basedir}/src/main/resources</directory>
             <outputDirectory>/openidm</outputDirectory>
             <excludes>
@@ -56,15 +62,11 @@
             <directory>${project.build.directory}/orientdb-community-${orientdb.studio.version}/www</directory>
             <outputDirectory>/openidm/db/util/orientdb/studio</outputDirectory>
         </fileSet>
-        <fileSet>
-            <directory>${project.build.directory}/connectors</directory>
-            <outputDirectory>/openidm/connectors</outputDirectory>
-        </fileSet>
         <!-- Create empty logs directory  -->
         <fileSet>
-            <directory>${project.build.directory}</directory>
+        	<directory>${project.build.directory}</directory>
             <excludes>
-                <exclude>**/*</exclude>
+             <exclude>**/*</exclude>
             </excludes>
             <outputDirectory>/openidm/logs</outputDirectory>
         </fileSet>
@@ -383,6 +385,211 @@
             </includes>
             <outputDirectory>/openidm/samples/workflow/script</outputDirectory>
         </fileSet>
+        <!-- Setup use case samples-->
+        <fileSet>
+            <directory>${basedir}/src/main/resources/samples/usecase</directory>
+            <includes>
+                <include>README</include>
+            </includes>
+            <outputDirectory>/openidm/samples/usecase/</outputDirectory>
+        </fileSet>
+        <!--Use case 1 Reconciliation-->
+        <fileSet>
+            <directory>${basedir}/src/main/resources</directory>
+            <includes>
+                <include>conf/**</include>
+                <include>script/**</include>
+            </includes>
+            <excludes>
+                <exclude>conf/managed.json</exclude>
+                <exclude>conf/policy.json</exclude>
+                <exclude>conf/system.properties</exclude>
+            </excludes>
+            <outputDirectory>/openidm/samples/usecase/usecase1</outputDirectory>
+        </fileSet>
+        <fileSet>
+            <directory>${basedir}/src/main/resources/samples/usecase</directory>
+            <includes>
+                <include>conf/managed.json</include>
+                <include>conf/policy.json</include>
+                <include>conf/sync.json</include>
+                <include>conf/system.properties</include>
+                <include>conf/provisioner.openicf-HRldap.json</include>
+                <include>script/on*.js</include>
+                <include>script/transform*.js</include>
+            </includes>
+            <outputDirectory>/openidm/samples/usecase/usecase1</outputDirectory>
+        </fileSet>
+        <!--Use case 2 User onboarding-->
+        <fileSet>
+            <directory>${basedir}/src/main/resources</directory>
+            <includes>
+                <include>conf/**</include>
+                <include>script/**</include>
+            </includes>
+            <excludes>
+                <exclude>conf/managed.json</exclude>
+                <exclude>conf/policy.json</exclude>
+                <exclude>conf/process-access.json</exclude>
+                <exclude>conf/system.properties</exclude>
+                <exclude>conf/workflow.json</exclude>
+            </excludes>
+            <outputDirectory>/openidm/samples/usecase/usecase2</outputDirectory>
+        </fileSet>
+        <fileSet>
+            <directory>${basedir}/src/main/resources/samples/usecase</directory>
+            <includes>
+                <include>conf/endpoint-getusermanager.json</include>
+                <include>conf/managed.json</include>
+                <include>conf/policy.json</include>
+                <include>conf/process-access.json</include>
+                <include>conf/schedule-taskscan_sun*.json</include>
+                <include>conf/system.properties</include>
+                <include>conf/workflow.json</include>
+                <include>conf/external.email.json</include>
+                <include>script/getUserManager.js</include>
+                <include>script/on*.js</include>
+                <include>script/sun*.js</include>
+                <include>workflow/newUserCreate.bpmn20.xml</include>
+                <include>workflow/sunrise.bpmn20.xml</include>
+                <include>workflow/sunset.bpmn20.xml</include>
+            </includes>
+            <outputDirectory>/openidm/samples/usecase/usecase2</outputDirectory>
+        </fileSet>
+        <!--Use case 3 User access request-->
+        <fileSet>
+            <directory>${basedir}/src/main/resources</directory>
+            <includes>
+                <include>conf/**</include>
+                <include>script/**</include>
+            </includes>
+            <excludes>
+                <exclude>conf/managed.json</exclude>
+                <exclude>conf/policy.json</exclude>
+                <exclude>conf/process-access.json</exclude>
+                <exclude>conf/system.properties</exclude>
+                <exclude>conf/workflow.json</exclude>
+            </excludes>
+            <outputDirectory>/openidm/samples/usecase/usecase3</outputDirectory>
+        </fileSet>
+        <fileSet>
+            <directory>${basedir}/src/main/resources/samples/usecase</directory>
+            <includes>
+                <include>conf/endpoint-getusermanager.json</include>
+                <include>conf/external.email.json</include>
+                <include>conf/managed.json</include>
+                <include>conf/policy.json</include>
+                <include>conf/process-access.json</include>
+                <include>conf/system.properties</include>
+                <include>conf/workflow.json</include>
+                <include>script/getUserManager.js</include>
+                <include>script/on*.js</include>
+                <include>workflow/accessRequest.bpmn20.xml</include>
+            </includes>
+            <outputDirectory>/openidm/samples/usecase/usecase3</outputDirectory>
+        </fileSet>
+        <!--Use case 4 Orphan account detection and manual linking-->
+        <fileSet>
+            <directory>${basedir}/src/main/resources</directory>
+            <includes>
+                <include>conf/**</include>
+                <include>script/**</include>
+            </includes>
+            <excludes>
+                <exclude>conf/managed.json</exclude>
+                <exclude>conf/policy.json</exclude>
+                <exclude>conf/process-access.json</exclude>
+                <exclude>conf/system.properties</exclude>
+                <exclude>conf/workflow.json</exclude>
+            </excludes>
+            <outputDirectory>/openidm/samples/usecase/usecase4</outputDirectory>
+        </fileSet>
+        <fileSet>
+            <directory>${basedir}/src/main/resources/samples/usecase</directory>
+            <includes>
+                <include>conf/endpoint-getusermanager.json</include>
+                <include>conf/managed.json</include>
+                <include>conf/policy.json</include>
+                <include>conf/process-access.json</include>
+                <include>conf/provisioner.openicf-BusinessCSV.json</include>
+                <include>conf/syncManagedBusiness.json</include>
+                <include>conf/system.properties</include>
+                <include>conf/workflow.json</include>
+                <include>data/business.csv</include>
+                <include>script/getUserManager.js</include>
+                <include>script/isSourceValidBusiness.js</include>
+                <include>script/on*.js</include>
+                <include>workflow/orphanAccountReport.bpmn20.xml</include>
+                <include>workflow/manualMatch.bpmn20.xml</include>
+            </includes>
+            <outputDirectory>/openidm/samples/usecase/usecase4</outputDirectory>
+        </fileSet>
+        <!--Use case 5 Certification workflow-->
+        <fileSet>
+            <directory>${basedir}/src/main/resources</directory>
+            <includes>
+                <include>conf/**</include>
+                <include>script/**</include>
+            </includes>
+            <excludes>
+                <exclude>conf/managed.json</exclude>
+                <exclude>conf/policy.json</exclude>
+                <exclude>conf/process-access.json</exclude>
+                <exclude>conf/system.properties</exclude>
+                <exclude>conf/workflow.json</exclude>
+            </excludes>
+            <outputDirectory>/openidm/samples/usecase/usecase5</outputDirectory>
+        </fileSet>
+        <fileSet>
+            <directory>${basedir}/src/main/resources/samples/usecase</directory>
+            <includes>
+                <include>conf/endpoint-getusermanager.json</include>
+                <include>conf/managed.json</include>
+                <include>conf/policy.json</include>
+                <include>conf/process-access.json</include>
+                <include>conf/schedule-certification.json</include>
+                <include>conf/system.properties</include>
+                <include>conf/workflow.json</include>
+                <include>script/certification.js</include>
+                <include>script/getUserManager.js</include>
+                <include>script/on*.js</include>
+                <include>workflow/certification.bpmn20.xml</include>
+            </includes>
+            <outputDirectory>/openidm/samples/usecase/usecase5</outputDirectory>
+        </fileSet>
+        <!--Use case 6 Password change workflow-->
+        <fileSet>
+            <directory>${basedir}/src/main/resources</directory>
+            <includes>
+                <include>conf/**</include>
+                <include>script/**</include>
+            </includes>
+            <excludes>
+                <exclude>conf/managed.json</exclude>
+                <exclude>conf/policy.json</exclude>
+                <exclude>conf/process-access.json</exclude>
+                <exclude>conf/system.properties</exclude>
+                <exclude>conf/workflow.json</exclude>
+            </excludes>
+            <outputDirectory>/openidm/samples/usecase/usecase6</outputDirectory>
+        </fileSet>
+        <fileSet>
+            <directory>${basedir}/src/main/resources/samples/usecase</directory>
+            <includes>
+                <include>conf/endpoint-getusermanager.json</include>
+                <include>conf/managed.json</include>
+                <include>conf/policy.json</include>
+                <include>conf/process-access.json</include>
+                <include>conf/schedule-taskscan_passwordchange.json</include>
+                <include>conf/system.properties</include>
+                <include>conf/workflow.json</include>
+                <include>script/getUserManager.js</include>
+                <include>script/on*.js</include>
+                <include>script/passwordchange.js</include>
+                <include>workflow/passwordChangeReminder.bpmn20.xml</include>
+            </includes>
+            <outputDirectory>/openidm/samples/usecase/usecase6</outputDirectory>
+        </fileSet>
     </fileSets>
     <dependencySets>
         <dependencySet>
@@ -393,15 +600,28 @@
                 <exclude>org.apache.felix:org.apache.felix.framework</exclude>
                 <exclude>org.osgi:org.osgi.core</exclude>
                 <exclude>org.osgi:org.osgi.compendium</exclude>
+                <exclude>org.apache.felix:org.osgi.core</exclude>
+                <exclude>org.apache.felix:org.osgi.compendium</exclude>
+                <exclude>org.apache.felix:org.osgi.foundation</exclude>
+                <exclude>org.apache.felix:javax.servlet</exclude>
                 <exclude>org.forgerock.openicf.connectors:*</exclude>
                 <exclude>org.forgerock.openidm:openidm-shell</exclude>
-                <exclude>org.forgerock.openidm:openidm-ui-enduser</exclude>
+                <exclude>org.forgerock.openidm:openidm-ui-ria*</exclude>
+                <exclude>org.forgerock.openidm:openidm-ui</exclude>
                 <exclude>org.forgerock.openidm:openidm-workflow-activiti:**:jar-with-dependencies</exclude>
                 <exclude>org.forgerock.openidm:openidm-workflow-remote</exclude>
                 <exclude>org.apache.felix:*gogo*</exclude>
                 <exclude>org.springframework*:*</exclude> <!--exclude optional Activiti dependecy-->
+                <exclude>stax:*</exclude>
+                <exclude>snappy:*</exclude>
+                <exclude>colt:*</exclude>
+                <exclude>concurrent:concurrent</exclude>
+                <exclude>org.json:*</exclude>
+                <exclude>org.hibernate.javax.persistence:*</exclude>
+                <exclude>org.javassist:*</exclude>
                 <exclude>*:*:js</exclude>
                 <exclude>*:*:zip</exclude>
+                <exclude>*:*:pom</exclude>
                 <!--exclude>org.apache.felix:org.apache.felix.scr.annotations</exclude>
                 <exclude>javax.persistence:persistence-api</exclude>
                 <exclude>javax.transaction:jta</exclude>

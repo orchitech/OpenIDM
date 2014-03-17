@@ -32,15 +32,14 @@ import java.util.concurrent.Executor;
 import java.util.concurrent.ExecutorCompletionService;
 import java.util.concurrent.Future;
 
-import org.forgerock.openidm.sync.SynchronizationException;
 
 /**
  * Base class to process a reconciliation phase, either on the calling thread, or
  * multi-threaded using an executor.
- * 
+ *
  * Keeps the executor loaded to a desirable level, rather than filling up
  * its queue with all tasks up front.
- * 
+ *
  * @author aegloff
  */
 public abstract class ReconFeeder {
@@ -80,11 +79,11 @@ public abstract class ReconFeeder {
             for (int i = 0; i < feedSize; ++i) {
                 submitNextIfPresent();
             }
-            
-            // Check all submitted tasks for exception, and 
+
+            // Check all submitted tasks for exception, and
             // each time one completes, submit another if there is any more
             for (int processed = 0; processed < submitted; ++processed) {
-                Future<Void> future = completionService.take(); 
+                Future<Void> future = completionService.take();
                 try {
                     // Get any exceptions
                     Void result = future.get();
@@ -110,7 +109,7 @@ public abstract class ReconFeeder {
         if (throwable instanceof SynchronizationException) {
             throw (SynchronizationException) throwable;
         } else {
-            throw new SynchronizationException("Exception in executing recon task " 
+            throw new SynchronizationException("Exception in executing recon task "
                     + throwable.getMessage(), throwable);
         }
     }
@@ -121,7 +120,7 @@ public abstract class ReconFeeder {
      * @return the task to reconcile the given id
      * @throws SynchronizationException if processing fails
      */
-    
+
     abstract Callable createTask(String id) throws SynchronizationException;
 
 }

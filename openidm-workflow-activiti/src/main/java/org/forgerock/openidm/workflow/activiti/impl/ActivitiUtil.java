@@ -23,17 +23,16 @@
  */
 package org.forgerock.openidm.workflow.activiti.impl;
 
-import java.util.ArrayList;
+import org.forgerock.openidm.workflow.activiti.ActivitiConstants;
 import java.util.HashMap;
+import java.util.Iterator;
 import java.util.Map;
-import org.activiti.engine.impl.context.Context;
-import org.activiti.engine.impl.identity.Authentication;
+import java.util.Map.Entry;
 import org.forgerock.json.fluent.JsonException;
 import org.forgerock.json.fluent.JsonTransformer;
 import org.forgerock.json.fluent.JsonValue;
-import org.forgerock.json.resource.JsonResourceContext;
-import org.forgerock.openidm.audit.util.ActivityLog;
-import org.forgerock.openidm.objset.ObjectSetContext;
+import org.forgerock.json.resource.CreateRequest;
+import org.forgerock.json.resource.QueryRequest;
 import org.forgerock.openidm.util.DateUtil;
 import org.joda.time.DateTime;
 
@@ -47,8 +46,8 @@ public class ActivitiUtil {
      * @param request Request to be processed
      * @return process key
      */
-    public static String removeKeyFromRequest(JsonValue request) {
-          return (String) (request.get("value").isNull() ? null : request.get("value").expect(Map.class).asMap().remove("_key"));
+    public static String removeKeyFromRequest(CreateRequest request) {
+          return (String) (request.getContent().isNull() ? null : request.getContent().expect(Map.class).asMap().remove("_key"));
     }
     
     /**
@@ -56,8 +55,8 @@ public class ActivitiUtil {
      * @param request Request to be processed
      * @return process business key
      */
-    public static String removeBusinessKeyFromRequest(JsonValue request) {
-          return (String) (request.get("value").isNull() ? null : request.get("value").expect(Map.class).asMap().remove("_businessKey"));
+    public static String removeBusinessKeyFromRequest(CreateRequest request) {
+          return (String) (request.getContent().isNull() ? null : request.getContent().expect(Map.class).asMap().remove("_businessKey"));
     }
     
     /**
@@ -65,8 +64,8 @@ public class ActivitiUtil {
      * @param request Request to be processed
      * @return processDefinitionId
      */
-    public static String removeProcessDefinitionIdFromRequest(JsonValue request) {
-        return (String) (request.get("value").isNull() ? null : request.get("value").expect(Map.class).asMap().remove("_processDefinitionId"));
+    public static String removeProcessDefinitionIdFromRequest(CreateRequest request) {
+        return (String) (request.getContent().isNull() ? null : request.getContent().expect(Map.class).asMap().remove("_processDefinitionId"));
     }
     
     /**
@@ -74,36 +73,28 @@ public class ActivitiUtil {
      * @param request Request to be processed
      * @return request body
      */
-    public static Map<String, Object> getRequestBodyFromRequest(JsonValue request) {
-        if (!request.get("value").isNull()) {
-            JsonValue val = request.get("value");
+    public static Map<String, Object> getRequestBodyFromRequest(CreateRequest request) {
+        if (!request.getContent().isNull()) {
+            JsonValue val = request.getContent();
             val.getTransformers().add(new DatePropertyTransformer());
             val.applyTransformers();
             val = val.copy();
             return new HashMap<String, Object>(val.expect(Map.class).asMap());
         } else {
-            return new HashMap(1);
+            return new HashMap<String, Object>(1);
         }
     }
     
     /**
-     * 
-     * @param request incoming request
+     * Fetch query parameters from the request
+     * @param request Request to be processed
+     * @param paramName parameter to be fetched
      * @return 
      */
-    public static String getIdFromRequest(JsonValue request) {
-        String[] id = request.get("id").asString().split("/");
-        return id[id.length-1];
+    public static String getParamFromRequest(QueryRequest request, String paramName) {
+        return request.getAdditionalParameters().get(paramName);
     }
     
-    public static String getQueryIdFromRequest(JsonValue request) {
-        return request.get("params").get("_queryId").asString();
-    }
-    
-    public static String getParamFromRequest(JsonValue request, String paramName) {
-        return request.get(ActivitiConstants.REQUEST_PARAMS).get(paramName).asString();
-    }
-
     private static class DatePropertyTransformer implements JsonTransformer {
         @Override
         public void transform(JsonValue value) throws JsonException {
@@ -115,31 +106,23 @@ public class ActivitiUtil {
             }
         }
     }
-    
-    public static JsonValue updateActivitiContext(String userName) {
-        JsonValue context = JsonResourceContext.newContext("activiti", JsonResourceContext.newRootContext());
-        HashMap<String, Object> security = new HashMap<String, Object>();
-        security.put("username", userName);
-        context.put("security", security);
-        return context;
-    }
-    
-    static void checkAndSetContext() {
-        String userName = Authentication.getAuthenticatedUserId();
-        JsonValue objectSetContext = ObjectSetContext.get();
-                
-        if (objectSetContext == null){  //async call
-            JsonValue savedContext = (JsonValue) Context.getExecutionContext().getExecution().getVariable("openidmcontext");
-            if (savedContext != null) {
-                ObjectSetContext.push(savedContext);
-                if (userName != null && !userName.equals(ActivityLog.getRequester(savedContext))){
-                    ObjectSetContext.push(ActivitiUtil.updateActivitiContext(userName));
-                }
-            }
-        } else {
-            if (userName != null && !userName.equals(ActivityLog.getRequester(objectSetContext))){
-                ObjectSetContext.push(ActivitiUtil.updateActivitiContext(userName));
+    /**
+     * Process the query parameters if they are workflow/task specific
+     * (prefixed: _var-...)
+     *
+     * @param request incoming request
+     * @return map of the workflow/task parameters
+     */
+    public static Map<String, String> fetchVarParams(QueryRequest request) {
+        Map<String, String> wfParams = new HashMap<String, String>();
+        Iterator<Entry<String, String>> itAll = request.getAdditionalParameters().entrySet().iterator();
+        while (itAll.hasNext()) {
+            Map.Entry<String, String> e = itAll.next();
+            if ((e.getKey().startsWith(ActivitiConstants.VARIABLE_QUERY_PREFIX))) {
+                wfParams.put(e.getKey().substring(5), e.getValue());
             }
         }
+        return wfParams;
     }
+    
 }

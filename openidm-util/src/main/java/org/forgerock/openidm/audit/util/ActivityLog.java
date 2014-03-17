@@ -1,73 +1,77 @@
 /*
- * The contents of this file are subject to the terms of the Common Development and
- * Distribution License (the License). You may not use this file except in compliance with the
- * License.
+ * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS HEADER.
  *
- * You can obtain a copy of the License at legal/CDDLv1.0.txt. See the License for the
- * specific language governing permission and limitations under the License.
+ * Copyright (c) 2011-2014 ForgeRock AS. All Rights Reserved
  *
- * When distributing Covered Software, include this CDDL Header Notice in each file and include
- * the License file at legal/CDDLv1.0.txt. If applicable, add the following below the CDDL
- * Header, with the fields enclosed by brackets [] replaced by your own identifying
- * information: "Portions Copyrighted [year] [name of copyright owner]".
+ * The contents of this file are subject to the terms
+ * of the Common Development and Distribution License
+ * (the License). You may not use this file except in
+ * compliance with the License.
  *
- * Copyright © 2011-2013 ForgeRock AS. All rights reserved.
+ * You can obtain a copy of the License at
+ * http://forgerock.org/license/CDDLv1.0.html
+ * See the License for the specific language governing
+ * permission and limitations under the License.
+ *
+ * When distributing Covered Code, include this CDDL
+ * Header Notice in each file and include the License file
+ * at http://forgerock.org/license/CDDLv1.0.html
+ * If applicable, add the following below the CDDL Header,
+ * with the fields enclosed by brackets [] replaced by
+ * your own identifying information:
+ * "Portions Copyrighted [year] [name of copyright owner]"
  */
 
 package org.forgerock.openidm.audit.util;
 
-
 import java.util.HashMap;
 import java.util.Map;
 
+import org.forgerock.json.fluent.JsonValue;
+import org.forgerock.json.resource.ConnectionFactory;
+import org.forgerock.json.resource.Context;
+import org.forgerock.json.resource.RequestType;
+import org.forgerock.json.resource.Requests;
+import org.forgerock.json.resource.Resource;
+import org.forgerock.json.resource.ResourceException;
+import org.forgerock.json.resource.RootContext;
+import org.forgerock.json.resource.SecurityContext;
+import org.forgerock.json.resource.ServerContext;
 import org.forgerock.openidm.core.IdentityServer;
 import org.forgerock.openidm.util.DateUtil;
 import org.forgerock.openidm.util.JsonUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-// JSON Fluent
-import org.forgerock.json.fluent.JsonValue;
-import org.forgerock.json.fluent.JsonValueException;
-
-// JSON Resource
-import org.forgerock.json.resource.JsonResourceContext;
-import org.forgerock.json.resource.JsonResource;
-import org.forgerock.json.resource.JsonResourceAccessor;
-import org.forgerock.json.resource.JsonResourceException;
-
-// Deprecated
-import org.forgerock.openidm.objset.ObjectSet;
-import org.forgerock.openidm.objset.ObjectSetException;
-
 public class ActivityLog {
+
+    /**
+     * Setup logging for the {@link ActivityLog}.
+     */
     final static Logger logger = LoggerFactory.getLogger(ActivityLog.class);
 
     private final static boolean suspendException;
     private static DateUtil dateUtil;
 
-    public final static String TIMESTAMP = "timestamp";
-    public final static String ACTION = "action";
-    public final static String MESSAGE = "message";
-    public final static String OBJECT_ID = "objectId";
-    public final static String REVISION = "rev";
-    public final static String ACTIVITY_ID = "activityId";
-    public final static String ROOT_ACTION_ID = "rootActionId";
-    public final static String PARENT_ACTION_ID = "parentActionId";
-    public final static String REQUESTER = "requester";
-    public final static String BEFORE = "before";
-    public final static String AFTER = "after";
-    public final static String STATUS = "status";
-    public final static String CHANGED_FIELDS = "changedFields";
-    public final static String PASSWORD_CHANGED = "passwordChanged";
-
-    // "marker" context key to determine whether we're already in an audit logging operation
-    private static final String IN_LOG_ACTIVITY = "inLogActivity";
+    public static final String TIMESTAMP = "timestamp";
+    public static final String ACTION = "action";
+    public static final String MESSAGE = "message";
+    public static final String OBJECT_ID = "objectId";
+    public static final String REVISION = "rev";
+    public static final String ACTIVITY_ID = "activityId";
+    public static final String ROOT_ACTION_ID = "rootActionId";
+    public static final String PARENT_ACTION_ID = "parentActionId";
+    public static final String REQUESTER = "requester";
+    public static final String BEFORE = "before";
+    public static final String AFTER = "after";
+    public static final String STATUS = "status";
+    public static final String CHANGED_FIELDS = "changedFields";
+    public static final String PASSWORD_CHANGED = "passwordChanged";
 
     /**
-     * Creates a Jackson object mapper. By default, it
-     * calls {@link org.codehaus.jackson.map.ObjectMapper#ObjectMapper()}.
-     *
+     * Creates a Jackson object mapper. By default, it calls
+     * {@link org.codehaus.jackson.map.ObjectMapper#ObjectMapper()}.
+     * 
      */
     static {
         String config = IdentityServer.getInstance().getProperty(ActivityLog.class.getName().toLowerCase());
@@ -76,70 +80,24 @@ public class ActivityLog {
         dateUtil = DateUtil.getDateUtil("UTC");
     }
 
-    /**
-     * Add the logging activity marker to the request for future "we are logging" detection.
-     *
-     * @param request the context/request in progress
-     * @param marker the marker value
-     */
-    public static void enterLogActivity(JsonValue request, String marker) {
-        request.put(IN_LOG_ACTIVITY, marker);
+    public static String getRequester(Context context) {
+        SecurityContext securityContext = context.asContext(SecurityContext.class);
+        return securityContext != null
+                ? securityContext.getAuthenticationId()
+                : null;
     }
 
-    /**
-     * Remove the logging activity marker from the request to indicate activity logging is complete.
-     *
-     * @param request the context/request for which logging is complete
-     */
-    public static void exitLogActivity(JsonValue request) {
-        request.remove(IN_LOG_ACTIVITY);
-    }
-
-    /**
-     * Test the <tt>request</tt> for presence of the logging activity indicator.  The marker
-     * may be present in the request's parent context, so walk the chain until we run out of
-     * context.
-     *
-     * @param request the context/request for which to detect logging activity
-     * @return whether or not this context/request appears to be involved in logging activity
-     */
-    public static boolean isInLogActivity(JsonValue request) {
-        while (request != null && !request.isNull()) {
-            if (request.get(IN_LOG_ACTIVITY) != null
-                    && !request.get(IN_LOG_ACTIVITY).isNull())
-                return true;
-            request = request.get("parent");
-        }
-        return false;
-    }
-
-    public static String getRequester(JsonValue request) {
-        String result = null;
-        while (request != null && !request.isNull()) {
-            JsonValue user = request.get("security").get("username");
-            if (user.isString()) {
-                result = user.asString();
-                break;
-            }
-            request = request.get("parent");
-        }
-        return result;
-    }
-
-    public static void log(JsonResource router, JsonValue request, String message, String objectId,
-                           JsonValue before, JsonValue after, Status status) throws JsonResourceException {
-        if (isInLogActivity(request)) {
-            return;
-        }
-        if (request == null) {
-            request = new JsonValue(null);
+    public static void log(ConnectionFactory connectionFactory, ServerContext context, RequestType requestType, String message, String objectId,
+                           JsonValue before, JsonValue after, Status status) throws ResourceException {
+        if (requestType == null) {
+            throw new NullPointerException("Request can not be null when audit.");
         }
         // TODO: convert to flyweight?
         try {
-            Map<String, Object> activity = buildLog(request, message, objectId, before, after, status);
-            JsonResourceAccessor accessor = new JsonResourceAccessor(router, JsonResourceContext.getParentContext(request));
-            accessor.create("audit/activity", new JsonValue(activity));
-        } catch (JsonResourceException ex) {
+            Map<String, Object> activity = buildLog(context, requestType, message, objectId, before, after, status);
+            connectionFactory.getConnection().create(new ServerContext(context),
+                    Requests.newCreateRequest("audit/activity", new JsonValue(activity)));
+        } catch (ResourceException ex) {
             logger.warn("Failed to write activity log {}", ex);
             if (!suspendException) {
                 throw ex;
@@ -148,62 +106,38 @@ public class ActivityLog {
         }
     }
 
-
-    public static void log(ObjectSet router, JsonValue request, String message, String objectId,
-                           JsonValue before, JsonValue after, Status status) throws ObjectSetException {
-        if (isInLogActivity(request)) {
-            return;
-        }
-        if (request == null) {
-            request = new JsonValue(null);
-        }
-        // TODO: convert to flyweight?
-        try {
-            Map<String, Object> activity = buildLog(request, message, objectId, before, after, status);
-            router.create("audit/activity", activity);
-        } catch (ObjectSetException ex) {
-            logger.warn("Failed to write activity log {}", ex);
-            if (!suspendException) {
-                throw ex;
-                // TODO: should this stop the activity itself?
-            }
-        }
-    }
-
-    private static Map<String, Object> buildLog(JsonValue request, String message, String objectId, JsonValue before, JsonValue after, Status status) {
+    private static Map<String, Object> buildLog(Context context, RequestType requestType, String message,
+            String objectId, JsonValue before, JsonValue after, Status status) {
         String rev = null;
-        if (after != null && after.get("_rev").isString()) {
-            rev = after.get("_rev").asString();
-        } else if (before != null && before.get("_rev").isString()) {
-            rev = before.get("_rev").asString();
+        if (after != null && after.get(Resource.FIELD_CONTENT_REVISION).isString()) {
+            rev = after.get(Resource.FIELD_CONTENT_REVISION).asString();
+        } else if (before != null && before.get(Resource.FIELD_CONTENT_REVISION).isString()) {
+            rev = before.get(Resource.FIELD_CONTENT_REVISION).asString();
         }
 
-        String method;
-        try {
-            method = request.get("method").asString();
-        } catch (JsonValueException jve) {
-            method = null;
-        }
+        String method = requestType.name();
+
         // TODO: make configurable
-        if (method != null && (method.equalsIgnoreCase("read") || method.equalsIgnoreCase("query"))) {
+        if (method != null
+                && (RequestType.READ.equals(requestType) || RequestType.QUERY.equals(requestType))) {
             before = null;
             after = null;
         }
 
-        JsonValue root = JsonResourceContext.getRootContext(request);
-        JsonValue parent = JsonResourceContext.getParentContext(request);
+        Context root = context.asContext(RootContext.class);
+        Context parent = context.getParent();
 
         Map<String, Object> activity = new HashMap<String, Object>();
         activity.put(TIMESTAMP, dateUtil.now());
-        activity.put(ACTION, request.get("method").getObject());
+        activity.put(ACTION, method);
         activity.put(MESSAGE, message);
         activity.put(OBJECT_ID, objectId);
         activity.put(REVISION, rev);
-        activity.put(ACTIVITY_ID, request.get("uuid").getObject());
-        activity.put(ROOT_ACTION_ID, root.get("uuid").getObject());
-        activity.put(PARENT_ACTION_ID, parent.get("uuid").getObject());
-        activity.put(REQUESTER, getRequester(request));
-        activity.put(BEFORE,  JsonUtil.jsonIsNull(before) ? null : before.getWrappedObject());
+        activity.put(ACTIVITY_ID, context.getId());
+        activity.put(ROOT_ACTION_ID, root.getId());
+        activity.put(PARENT_ACTION_ID, parent.getId());
+        activity.put(REQUESTER, getRequester(context));
+        activity.put(BEFORE, JsonUtil.jsonIsNull(before) ? null : before.getWrappedObject());
         activity.put(AFTER, JsonUtil.jsonIsNull(after) ? null : after.getWrappedObject());
         activity.put(STATUS, status == null ? null : status.toString());
 

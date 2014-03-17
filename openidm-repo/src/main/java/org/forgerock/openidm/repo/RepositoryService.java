@@ -23,12 +23,9 @@
  */
 package org.forgerock.openidm.repo;
 
-// JSON Resource
-import org.forgerock.json.resource.JsonResource;
-
 /**
  * Common OpenIDM repository interface
  * @author aegloff
  */
-public interface RepositoryService extends JsonResource {
+public interface RepositoryService { // extends JsonResource {
 }

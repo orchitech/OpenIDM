@@ -38,11 +38,10 @@ import org.apache.felix.scr.annotations.ConfigurationPolicy;
 import org.apache.felix.scr.annotations.Deactivate;
 import org.apache.felix.scr.annotations.Reference;
 import org.forgerock.json.fluent.JsonValue;
-import org.forgerock.openidm.config.JSONEnhancedConfig;
+import org.forgerock.openidm.config.enhanced.JSONEnhancedConfig;
 import org.forgerock.openidm.core.IdentityServer;
 import org.ops4j.pax.web.service.WebContainer;
 import org.osgi.framework.Bundle;
-import org.osgi.framework.BundleContext;
 import org.osgi.framework.BundleEvent;
 import org.osgi.framework.BundleListener;
 import org.osgi.service.component.ComponentContext;
@@ -80,7 +79,6 @@ public final class ResourceServlet
     private String bundleName;
     private String resourceDir;
     private String contextRoot;
-    private BundleContext bundleContext;
     
     private List<String> extFolders;
     
@@ -143,11 +141,10 @@ public final class ResourceServlet
                     logger.debug("BundleEvent is null for bundle {}", bundleName);
                     return;
                 }
-                Bundle eventBundle = event.getBundle();
-                if (eventBundle != null && eventBundle.getSymbolicName() != null && 
-                        eventBundle.getSymbolicName().equals(bundleName)) {
+                Bundle bundle = event.getBundle();
+                if (bundle != null && bundle.getSymbolicName() != null && bundle.getSymbolicName().equals(bundleName)) {
                     if (event.getType() == BundleEvent.STARTED) {
-                        ResourceServlet.this.bundle = event.getBundle();
+                        ResourceServlet.this.bundle = bundle;
                         logger.info("Bundle " + bundleName + " associated with servlet instance");
                     } else if (event.getType() == BundleEvent.STOPPED) {
                         ResourceServlet.this.bundle = null;
@@ -157,8 +154,7 @@ public final class ResourceServlet
             }
         };
 
-        bundleContext = context.getBundleContext();
-        bundleContext.addBundleListener(bundleListener);
+        context.getBundleContext().addBundleListener(bundleListener);
 
         // TODO rework this into an extension config when we support serving extensions from other locations
         extFolders = new ArrayList<String>();
@@ -174,8 +170,8 @@ public final class ResourceServlet
     
     @Deactivate
     protected void deactivate(ComponentContext context) {
-        if (bundleListener != null && bundleContext != null) {
-            bundleContext.removeBundleListener(bundleListener);
+        if (bundleListener != null) {
+            bundle.getBundleContext().removeBundleListener(bundleListener);
         }
         webContainer.unregister(contextRoot);
         logger.debug("Unregistered UI servlet at {}", contextRoot);
@@ -237,7 +233,7 @@ public final class ResourceServlet
         if (contentType != null) {
             res.setContentType(contentType);
         } else {
-        	res.setContentType(getMimeType(resName));
+            res.setContentType(getMimeType(resName));
         }
 
         long lastModified = getLastModified(url);
@@ -276,17 +272,17 @@ public final class ResourceServlet
     }
     
     private String getMimeType(String fileName) {
-    	if (fileName.endsWith(".css")) {
-    		return "text/css";
-    	} else if (fileName.endsWith(".js")) {
-    		return "application/javascript";
-    	} else if (fileName.endsWith(".png")) {
-    		return "image/png";
-    	} else if (fileName.endsWith(".html")) {
-    		return "text/html";
-    	}
-    	
-    	return null;
+        if (fileName.endsWith(".css")) {
+            return "text/css";
+        } else if (fileName.endsWith(".js")) {
+            return "application/javascript";
+        } else if (fileName.endsWith(".png")) {
+            return "image/png";
+        } else if (fileName.endsWith(".html")) {
+            return "text/html";
+        }
+        
+        return null;
     }
 
     private boolean resourceModified(long resTimestamp, long modSince) {

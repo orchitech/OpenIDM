@@ -23,16 +23,17 @@
  */
 package org.forgerock.openidm.workflow.activiti.impl;
 
+import org.forgerock.openidm.workflow.activiti.ActivitiConstants;
 import org.activiti.engine.identity.User;
 import org.activiti.engine.impl.Page;
 import org.activiti.engine.impl.UserQueryImpl;
 import org.activiti.engine.impl.interceptor.CommandContext;
-import org.forgerock.json.fluent.JsonValue;
-import org.forgerock.json.resource.JsonResourceException;
+import org.forgerock.json.resource.ResourceException;
 
 import java.util.ArrayList;
-import java.util.HashMap;
+import java.util.Collection;
 import java.util.List;
+import org.forgerock.json.resource.*;
 
 /**
  * @author $author$
@@ -40,6 +41,7 @@ import java.util.List;
  */
 public class JsonUserQuery extends UserQueryImpl {
 
+    static final long serialVersionUID = 1L;
     private final SharedIdentityService identityService;
 
     public JsonUserQuery(SharedIdentityService identityService) {
@@ -49,51 +51,80 @@ public class JsonUserQuery extends UserQueryImpl {
 
     @Override
     public List<User> executeList(CommandContext commandContext, Page page) {
-        JsonValue params = new JsonValue(new HashMap());
-        params.put("_queryId", "query-all-ids");
+        QueryRequest request = Requests.newQueryRequest(SharedIdentityService.USER_PATH);
+        request.setQueryId(ActivitiConstants.QUERY_ALL_IDS);
+        List<User> userList = new ArrayList<User>();
+        QueryResultHandler handler = new QueryResultHandlerImpl(userList);
         try {
-            JsonValue result = identityService.getAccessor().query("managed/user", params);
-            List<User> userList = new ArrayList<User>();
-            for (JsonValue resultItem : result.get("result")) {
-                userList.add(new JsonUser(identityService.getAccessor().read("managed/user/" + resultItem.get("_id").asString())));
-            }
+            identityService.query(request, handler);
             return userList;
-        } catch (JsonResourceException e) {
+        } catch (ResourceException e) {
             throw new RuntimeException(e);
         }
     }
 
     @Override
     public long executeCount(CommandContext commandContext) {
-        JsonValue params = new JsonValue(new HashMap());
+        QueryRequest request = Requests.newQueryRequest(SharedIdentityService.USER_PATH);
         if (null == getId()) {
-            params.put("_queryId", "query-all-ids");
+            request.setQueryId(ActivitiConstants.QUERY_ALL_IDS);
         } else {
-            params.put("_queryId", "for-userName");
-            params.put("uid", getId());
+            request.setQueryId("for-userName");
+            request.setAdditionalParameter("uid", getId());
         }
+        Collection<Resource> result = new ArrayList<Resource>();
         try {
-            JsonValue result = identityService.getAccessor().query("managed/user", params);
-            return result.get("result").size();
-        } catch (JsonResourceException e) {
+            identityService.query(request, result);
+            return result.size();
+        } catch (ResourceException e) {
             throw new RuntimeException(e);
         }
     }
 
     @Override
     public User executeSingleResult(CommandContext commandContext) {
-        JsonValue params = new JsonValue(new HashMap());
-        params.put("_queryId", "for-userName");
-        params.put("uid", getId());
+        return readUser(getId());
+    }
+    
+    User readUser(String id) {
+        QueryRequest request = Requests.newQueryRequest(SharedIdentityService.USER_PATH);
+        request.setQueryId("for-userName");
+        request.setAdditionalParameter("uid", id);
+        List<Resource> result = new ArrayList<Resource>();
         try {
-            JsonValue result = identityService.getAccessor().query("managed/user", params);
-            if (result.get("result").size() > 0) {
-                JsonUser user = new JsonUser(result.get("result").get(0));
+            identityService.query(request, result);
+            if (result.size() > 0) {
+                JsonUser user = new JsonUser(result.get(0).getContent());
                 return user;
             }
             return null;
-        } catch (JsonResourceException e) {
+        } catch (ResourceException e) {
             throw new RuntimeException(e);
         }
+
     }
+
+    private class QueryResultHandlerImpl implements QueryResultHandler {
+
+        private final List<User> userList;
+
+        public QueryResultHandlerImpl(List<User> userList) {
+            this.userList = userList;
+        }
+
+        @Override
+        public void handleError(ResourceException error) {
+            throw new RuntimeException(error);
+        }
+
+        @Override
+        public boolean handleResource(Resource resource) {
+            return userList.add(readUser(resource.getContent().get(ActivitiConstants.ID).asString()));
+        }
+
+        @Override
+        public void handleResult(QueryResult result) {
+        }
+    }
+
 }

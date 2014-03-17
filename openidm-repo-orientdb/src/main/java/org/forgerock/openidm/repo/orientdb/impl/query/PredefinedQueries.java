@@ -33,8 +33,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.regex.Pattern;
 
-import org.forgerock.openidm.objset.BadRequestException;
-import org.forgerock.openidm.objset.ObjectSetException;
+import org.forgerock.json.resource.BadRequestException;
+
 import org.forgerock.openidm.repo.orientdb.impl.DocumentUtil;
 import org.forgerock.openidm.repo.orientdb.impl.OrientDBRepoService;
 import org.slf4j.Logger;

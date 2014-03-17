@@ -29,8 +29,7 @@ import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-//import org.forgerock.openidm.objset.ObjectSetException;
-import org.forgerock.openidm.objset.BadRequestException;
+import org.forgerock.json.resource.BadRequestException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -57,7 +56,7 @@ public class TokenHandler {
      * @return the query with all tokens replace with their found values
      * @throws BadRequestException if token in the query is not in the passed parameters
      */
-    String replaceTokensWithValues(String queryString, Map<String, Object> params) 
+    String replaceTokensWithValues(String queryString, Map<String, String> params) 
             throws BadRequestException {
         java.util.regex.Matcher matcher = tokenPattern.matcher(queryString);
         StringBuffer buffer = new StringBuffer();
@@ -95,6 +94,7 @@ public class TokenHandler {
                     }
                     replacement = commaSeparated.toString();
                 }
+
                 if (replacement == null) {
                     replacement = "";
                 }

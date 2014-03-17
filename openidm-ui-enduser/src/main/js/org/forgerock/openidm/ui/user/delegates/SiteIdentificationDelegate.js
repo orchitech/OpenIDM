@@ -38,11 +38,16 @@ define("SiteIdentificationDelegate", [
         obj = new AbstractDelegate(endpointPath);
 
     obj.getSiteIdentificationForLogin = function(login, successCallback, errorCallback) {            
-        obj.serviceCall({url: "?login=" + login, success: function(data) {
-            if(successCallback) {
-                successCallback(data);
-            }
-        }, error: errorCallback});
+        obj.serviceCall({
+            url: "?_queryId=siteIdentification&login=" + login,  
+            type: "GET",
+            success: function(data) {
+                if(successCallback) {
+                    successCallback(data.result[0]);
+                }
+            }, 
+            error: errorCallback
+        });
     };
     
     return obj;

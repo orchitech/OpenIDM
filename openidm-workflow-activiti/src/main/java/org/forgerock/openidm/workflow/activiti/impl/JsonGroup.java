@@ -25,9 +25,7 @@ package org.forgerock.openidm.workflow.activiti.impl;
 
 import org.activiti.engine.identity.Group;
 import org.forgerock.json.fluent.JsonValue;
-
 import java.util.HashMap;
-
 import static org.forgerock.openidm.workflow.activiti.impl.SharedIdentityService.*;
 
 /**
@@ -35,6 +33,7 @@ import static org.forgerock.openidm.workflow.activiti.impl.SharedIdentityService
  * @version $Revision$ $Date$
  */
 public class JsonGroup extends JsonValue implements Group {
+    static final long serialVersionUID = 1L;
 
     public JsonGroup(String groupId) {
         super(new HashMap());

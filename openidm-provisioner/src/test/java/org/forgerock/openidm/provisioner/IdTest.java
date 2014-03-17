@@ -23,7 +23,7 @@
  */
 package org.forgerock.openidm.provisioner;
 
-import org.forgerock.json.resource.JsonResourceException;
+import org.forgerock.json.resource.ResourceException;
 import org.testng.Assert;
 import org.testng.annotations.Test;
 
@@ -79,12 +79,12 @@ public class IdTest {
         Assert.assertEquals(actual.resolveLocalId("http://openidm.forgerock.org/openidm/managed/user/480ab4b0-764f-11e0-a1f0-0800200c9a66").getId().toString(), expected);
     }
 
-    @Test(expectedExceptions = JsonResourceException.class)
+    @Test(expectedExceptions = ResourceException.class)
     public void testMalformedURLPrefix() throws Exception {
         new Id("/system/xml/");
     }
 
-    @Test(expectedExceptions = JsonResourceException.class)
+    @Test(expectedExceptions = ResourceException.class)
     public void testExpectObjectId() throws Exception {
         Id id = new Id("/system/xml/");
         id.expectObjectId();

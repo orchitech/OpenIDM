@@ -51,6 +51,12 @@ var policyConfig = {
             "policyRequirements" : ["UNIQUE"]
         },
         {
+            "policyId" : "regexpMatches",
+            "policyExec" : "regexpMatches",
+            "clientValidation": true,
+            "policyRequirements" : ["MATCH_REGEXP"]
+        },       
+        {
             "policyId" : "valid-date",
             "policyExec" : "validDate",
             "clientValidation": true,
@@ -124,11 +130,10 @@ var policyConfig = {
 policyImpl = (function (){
 
     // internal-use utility function
-    var getSecurityContext,
-        checkExceptRoles = function (exceptRoles) {
-            var i, j, roles, role, security = getSecurityContext(request);
-            if (security !== null) {
-                roles = security["openidm-roles"];
+    var checkExceptRoles = function (exceptRoles) {
+            var i, j, roles, role;
+            if (context.security.authorizationId !== null) {
+                roles = context.security.authorizationId.roles;
                 if (exceptRoles) {
                     for (i = 0; i < exceptRoles.length; i++) {
                         role = exceptRoles[i];
@@ -146,13 +151,16 @@ policyImpl = (function (){
         },
         policyFunctions = {};
 
-    getSecurityContext = function(ctxt) {
-        if (typeof(ctxt) === 'undefined' || ctxt === null) {
-            return null;
-        } else if (typeof(ctxt.security) !== 'undefined') {
-            return ctxt.security;
+
+    policyFunctions.regexpMatches = function(fullObject, value, params, property) {
+        params.flags = params.flags || "";
+        if (typeof(value) === "number") {
+            value = value + ""; // cast to string;
+        }
+        if (typeof(value) !== "string" || !(new RegExp(params.regexp, params.flags)).test(value)) {
+            return [ {"policyRequirement": "MATCH_REGEXP", "regexp": params.regexp, params: params, "flags": params.flags}];
         } else {
-            return getSecurityContext(ctxt.parent);
+            return [];
         }
     };
 
@@ -164,7 +172,7 @@ policyImpl = (function (){
     };
 
     policyFunctions.notEmpty = function(fullObject, value, params, property) { 
-        if (typeof(value) !== "string" || !value.length) {
+        if (value !== undefined && (value === null || !value.length)) {
             return [ {"policyRequirement": "REQUIRED"}];
         }
         else {
@@ -191,7 +199,7 @@ policyImpl = (function (){
                 },
             existing,requestId,requestBaseArray;
     
-            requestBaseArray = request.id.split("/");
+            requestBaseArray = request.resourceName.split("/");
             if (requestBaseArray.length === 3) {
                 requestId = requestBaseArray.pop();
             }
@@ -214,7 +222,7 @@ policyImpl = (function (){
         
         if (value && value.length)
         {
-            requestBaseArray = request.id.split("/");
+            requestBaseArray = request.resourceName.split("/");
             if (requestBaseArray.length === 3) {
                 requestId = requestBaseArray.pop();
             }
@@ -318,8 +326,13 @@ policyImpl = (function (){
             fullObject_server = {},
             i;
         
-        if (typeof(openidm) !== "undefined" && typeof(request) !== "undefined"  && request.id && !request.id.match('/$')) {
-            fullObject_server = openidm.read(request.id);
+        // since this function runs on both the client and the server, we need to 
+        // check for the presence of our server-side functions before using them.
+        if (typeof(openidm) !== "undefined" && typeof(request) !== "undefined"  && request.resourceName && !request.resourceName.match('/*$')) {
+            fullObject_server = openidm.read(request.resourceName);
+            if (fullObject_server === null) {
+                fullObject_server = {};
+            }
         }
         
         if (value && typeof(value) === "string" && value.length) {
@@ -362,14 +375,25 @@ policyImpl = (function (){
             return [];
         }
         
-        var isHttp = request._isDirectHttp,
-            actionParams,response,currentObject;
+        var actionParams,response,currentObject;
         
-        if (isHttp === "true" || isHttp === true) {
-            
-            if (request.id && !request.id.match('/$')) { 
-                // only do a read if there is no id specified, in the case of new records 
-                currentObject = openidm.read(request.id);
+        // Perform reauth if the context indicates that the caller is external
+        // or if we have set a parameter to force reauth when handing a patch operation.
+        // Important: Interpret any value of additionalParameters.external as `true`
+        // so that an external caller cannot abuse this facility by passing in 'false'.
+        if (context.caller.external
+                || (request.additionalParameters !== null && typeof request.additionalParameters.external !== "undefined")) {
+
+            // don't do a read if the resource ends with "/*", which indicates that this is a new record
+            if (typeof request.resourceName === "string" && !request.resourceName.match('/\\*$')) { 
+                currentObject = openidm.read(request.resourceName);
+
+                // if the given resource doesn't exist, this also indicates that 
+                // this is a new record (likely a client-assigned ID)
+                if (currentObject === null) {
+                    return [];
+                }
+
                 if (openidm.isEncrypted(currentObject[propName])) {
                     currentObject[propName] = openidm.decrypt(currentObject[propName]);
                 }
@@ -377,14 +401,11 @@ policyImpl = (function (){
                     // this means the value hasn't changed, so don't complain about reauth
                     return [];
                 }
-            }
-            try {
-                actionParams = {
-                    "_action": "reauthenticate"
-                };
-                response = openidm.action("authentication",  actionParams);
-            } catch (error) {
-                return [ { "policyRequirement" : "REAUTH_REQUIRED" } ];
+                try {
+                    response = openidm.action("authentication", "reauthenticate", {});
+                } catch (error) {
+                    return [ { "policyRequirement" : "REAUTH_REQUIRED" } ];
+                }
             }
         }
         return [];
@@ -413,6 +434,7 @@ policyProcessor = (function (policyConfig,policyImpl){
             i;
         
         for (i = 0; i < propAddress.length; i++) {
+            propAddress[i] = propAddress[i].replace(/\[\*\]$/, ''); // replace a trailing array indicator, if found
             tmpObject = tmpObject[propAddress[i]];
             if (tmpObject === undefined || tmpObject === null) {
                 return tmpObject;
@@ -509,7 +531,8 @@ policyProcessor = (function (policyConfig,policyImpl){
         var retObj = {},
             policyRequirements = [],
             allPolicyRequirements = getAllPolicyRequirements(policies),
-            i,params,policy,validationFunc,failed,y;
+            propValueContainer = [],
+            i,j,params,policy,validationFunc,failed,y;
         
         for (i = 0; i < policies.length; i++) {
             params = policies[i].params;
@@ -521,23 +544,34 @@ policyProcessor = (function (policyConfig,policyImpl){
             if (!(typeof(policy.validateOnlyIfPresent) !== 'undefined' && policy.validateOnlyIfPresent && typeof(propValue) === 'undefined')) {
                 validationFunc = policyImpl[policy.policyExec]; 
                 
-                if (propValue && openidm.isEncrypted(propValue)) {
-                    propValue = openidm.decrypt(propValue);
+                if (propName.match(/\[\*\]$/)) { // if we are dealing with a property that is an array element
+                    propValueContainer = propValue; // then use the propValue provided for the array
+                } else { // if we are dealing with a regular property
+                    propValueContainer = [propValue]; // then it's a single value array
                 }
-                    
-                failed = validationFunc.call({ "failedPolicyRequirements": policyRequirements, "allPolicyRequirements": allPolicyRequirements }, fullObject, propValue, params, propName);
-                if (failed.length > 0) {
-                    for ( y = 0; y < failed.length; y++) {
-                        policyRequirements.push(failed[y]);
+                
+                if (propValueContainer !== undefined && propValueContainer !== null) {
+                    for (j=0;j<propValueContainer.length;j++) {
+                        
+                        retObj = {};
+                        retObj.policyRequirements = [];
+                        
+                        if (openidm.isEncrypted(propValueContainer[j])) {
+                            propValueContainer[j] = openidm.decrypt(propValueContainer[j]);
+                        }
+                            
+                        failed = validationFunc.call({ "failedPolicyRequirements": policyRequirements, "allPolicyRequirements": allPolicyRequirements }, fullObject, propValueContainer[j], params, propName);
+                        if (failed.length > 0) {
+                            retObj.property = propName.replace(/\[\*\]$/, "["+j+"]");
+                            for ( y = 0; y < failed.length; y++) {
+                                retObj.policyRequirements.push(failed[y]);
+                            }
+                            retArray.push(retObj);
+                        }
                     }
                 }
             }
             
-        }
-        if (policyRequirements.length > 0) {
-            retObj.property = propName;
-            retObj.policyRequirements = policyRequirements;
-            retArray.push(retObj);
         }
     },
     
@@ -676,19 +710,19 @@ policyProcessor = (function (policyConfig,policyImpl){
             props,
             prop;
         
-        if (request.id !== null && request.id !== undefined) {
+        if (request.resourceName !== null && request.resourceName !== undefined) {
             // Get the policy configuration for the specified resource
-            resource = getResource(resources, request.id);
+            resource = getResource(resources, request.resourceName);
             if (resource === null ) {
                 resource = {};
-                resource.resource = request.id;
+                resource.resource = request.resourceName;
                 resource.properties = [];
             }
             // Update the policy configuration with any resource specific
-            updateResourceConfig(resource, request.id);
+            updateResourceConfig(resource, request.resourceName);
         }
         if (method === "read") {
-            if (request.id === null) {
+            if (request.resourceName === null || request.resourceName === "") {
                 compArray = [];
                 for (i = 0; i < resources.length; i++) {
                     rsrc = resources[i];
@@ -700,10 +734,10 @@ policyProcessor = (function (policyConfig,policyImpl){
                 returnObject = getResourceWithPolicyRequirements(resource);
             }
         } else if (method === "action") {
-            action = request.params._action;
+            action = request.action;
             failedPolicyRequirements = [];
             returnObject = {};
-            if (request.id === null) {
+            if (request.resourceName === null) {
                 throw "No resource specified";
             }
             if (resource === null) {
@@ -711,10 +745,7 @@ policyProcessor = (function (policyConfig,policyImpl){
                 returnObject.result = true;
                 returnObject.failedPolicyRequirements = failedPolicyRequirements;
             } else {
-                fullObject = request.value;
-                if (fullObject === undefined) {
-                    fullObject = request.params.value;
-                }
+                fullObject = request.content;
                 // Perform the validation
                 if (action === "validateObject") {
                     for (i = 0; i < resource.properties.length; i++) {
@@ -725,7 +756,7 @@ policyProcessor = (function (policyConfig,policyImpl){
                                 getPropertyValue(fullObject, propName), failedPolicyRequirements);
                     }
                 } else if (action === "validateProperty") {
-                    props = request.value;
+                    props = request.content;
                     for (propName in props) {
                         prop = getPropertyConfig(resource, propName);
                         if (prop !== null) {
@@ -760,21 +791,17 @@ additionalPolicyLoader = (function (config,impl) {
         config.policies.push(policy);
     };
     
-    obj.load = function (additionPolicies) {
+    obj.load = function (additionalPolicies) {
         var i,j;
         //Load additional policy scripts if configured
         for (i = 0; i < additionalPolicies.length; i++) {
-            try {
-                eval(additionalPolicies[i]);
+            eval(additionalPolicies[i]);
                 
-                for (j=0;j<config.policies.length;j++) {
-                    if (!policyImpl.hasOwnProperty(config.policies[j].policyExec) && 
-                        typeof(eval(config.policies[j].policyExec)) === "function") {
-                        impl[config.policies[j].policyExec] = eval(config.policies[j].policyExec);
-                    }
+            for (j=0;j<config.policies.length;j++) {
+                if (!policyImpl.hasOwnProperty(config.policies[j].policyExec) && 
+                    typeof(eval(config.policies[j].policyExec)) === "function") {
+                    impl[config.policies[j].policyExec] = eval(config.policies[j].policyExec);
                 }
-            } catch (error) {
-                java.lang.System.out.println("Error executing additional policy script: " + error);
             }
         }
     };

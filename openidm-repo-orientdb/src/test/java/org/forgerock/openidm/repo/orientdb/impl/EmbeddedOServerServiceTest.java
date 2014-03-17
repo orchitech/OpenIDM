@@ -24,7 +24,7 @@
 package org.forgerock.openidm.repo.orientdb.impl;
 
 
-import org.codehaus.jackson.map.ObjectMapper;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.orientechnologies.orient.server.plugin.OServerPlugin;
 import java.util.Map;
 import org.forgerock.json.fluent.JsonValue;

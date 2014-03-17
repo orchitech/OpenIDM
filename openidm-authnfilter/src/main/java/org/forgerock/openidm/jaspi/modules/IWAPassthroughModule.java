@@ -91,13 +91,13 @@ public class IWAPassthroughModule extends IWAModule {
      * @param messageInfo {@inheritDoc}
      * @param clientSubject {@inheritDoc}
      * @param serviceSubject {@inheritDoc}
-     * @param authData {@inheritDoc}
+     * @param securityContextMapper {@inheritDoc}
      * @return {@inheritDoc}
      * @throws AuthException If there is a problem performing the authentication.
      */
     @Override
     protected AuthStatus validateRequest(MessageInfo messageInfo, Subject clientSubject, Subject serviceSubject,
-            AuthData authData) throws AuthException {
+            SecurityContextMapper securityContextMapper) throws AuthException {
 
         HttpServletRequest request = (HttpServletRequest) messageInfo.getRequestMessage();
         //Set pass through auth resource on request so can be accessed by authnPopulateContext.js script.
@@ -108,13 +108,13 @@ public class IWAPassthroughModule extends IWAModule {
         if (!StringUtils.isEmpty(xOpenIDMUsername) && !StringUtils.isEmpty(xOpenIdmPassword)) {
             // skip straight to ad passthrough
             LOGGER.debug("IWAPassthroughModule: Have OpenIDM username, falling back to AD Passthrough");
-            return passthroughModule.validateRequest(messageInfo, clientSubject, serviceSubject, authData);
+            return passthroughModule.validateRequest(messageInfo, clientSubject, serviceSubject, securityContextMapper);
         }
 
-        AuthStatus authStatus = super.validateRequest(messageInfo, clientSubject, serviceSubject, authData);
+        AuthStatus authStatus = super.validateRequest(messageInfo, clientSubject, serviceSubject, securityContextMapper);
 
         if (AuthStatus.SEND_FAILURE.equals(authStatus)) {
-            return passthroughModule.validateRequest(messageInfo, clientSubject, serviceSubject, authData);
+            return passthroughModule.validateRequest(messageInfo, clientSubject, serviceSubject, securityContextMapper);
         } else {
             return authStatus;
         }

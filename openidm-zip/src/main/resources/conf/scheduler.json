@@ -3,5 +3,8 @@
     {
         "threadCount" : "10"
     },
-    "scheduler" : {}
+    "scheduler" : 
+    {
+        "instanceId" : "scheduler1234"
+    }
 }

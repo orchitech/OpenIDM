@@ -41,13 +41,14 @@ public class PostgreSQLTableHandler extends GenericTableHandler {
 
     protected Map<QueryDefinition, String> initializeQueryMap() {
         Map<QueryDefinition, String> result = super.initializeQueryMap();
+
         String typeTable = dbSchemaName == null ? "objecttypes" : dbSchemaName + ".objecttypes";
         String mainTable = dbSchemaName == null ? mainTableName : dbSchemaName + "." + mainTableName;
         String propertyTable = dbSchemaName == null ? propTableName : dbSchemaName + "." + propTableName;
 
-        result.put(QueryDefinition.UPDATEQUERYSTR, "UPDATE " + mainTable + " SET objectid = ?, rev = ?, fullobject = ? WHERE id = ?");
-        result.put(QueryDefinition.DELETEQUERYSTR, "DELETE FROM " + mainTable + " WHERE id IN (SELECT obj.id FROM " + mainTable + " AS obj INNER JOIN " + typeTable + " AS objtype ON obj.objecttypes_id = objtype.id AND objtype.objecttype = ? WHERE obj.objectid = ? AND obj.rev = ?)");
-        result.put(QueryDefinition.PROPDELETEQUERYSTR, "DELETE FROM " + propertyTable + " WHERE " + mainTableName + "_id IN (SELECT obj.id FROM " + mainTable + " AS obj INNER JOIN " + typeTable + " AS objtype ON obj.objecttypes_id = objtype.id WHERE objtype.objecttype = ? AND obj.objectid = ?)");
+        result.put(QueryDefinition.UPDATEQUERYSTR, "UPDATE " + mainTable + " SET objectid = ?, rev = ?, fullobject = ?::json WHERE id = ?");
+        result.put(QueryDefinition.CREATEQUERYSTR, "INSERT INTO " + mainTable + " (objecttypes_id, objectid, rev, fullobject) VALUES (?,?,?,?::json)");
+        result.put(QueryDefinition.PROPDELETEQUERYSTR, "DELETE FROM " + propertyTable + " WHERE " + mainTableName + "_id IN (SELECT obj.id FROM " + mainTable + " obj INNER JOIN " + typeTable + " objtype ON obj.objecttypes_id = objtype.id WHERE objtype.objecttype = ? AND obj.objectid = ?)");
         return result;
     }
 }

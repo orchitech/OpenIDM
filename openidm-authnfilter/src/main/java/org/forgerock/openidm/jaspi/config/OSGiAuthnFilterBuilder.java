@@ -11,18 +11,10 @@
  * Header, with the fields enclosed by brackets [] replaced by your own identifying
  * information: "Portions Copyrighted [year] [name of copyright owner]".
  *
- * Copyright 2013 ForgeRock Inc. All rights reserved.
+ * Copyright 2013-2014 ForgeRock AS.
  */
 
 package org.forgerock.openidm.jaspi.config;
-
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.Iterator;
-import java.util.List;
-import java.util.Map;
-
-import javax.security.auth.message.AuthException;
 
 import org.apache.felix.scr.annotations.Activate;
 import org.apache.felix.scr.annotations.Component;
@@ -33,23 +25,36 @@ import org.apache.felix.scr.annotations.Property;
 import org.apache.felix.scr.annotations.Reference;
 import org.apache.felix.scr.annotations.ReferenceCardinality;
 import org.apache.felix.scr.annotations.ReferencePolicy;
-import org.forgerock.jaspi.container.config.AuthContextConfiguration;
-import org.forgerock.jaspi.container.config.Configuration;
-import org.forgerock.jaspi.container.config.ConfigurationManager;
-import org.forgerock.jaspi.filter.AuthNFilter;
+import org.forgerock.jaspi.JaspiRuntimeFilter;
+import static org.forgerock.jaspi.runtime.context.config.ModuleConfigurationFactory.SERVER_AUTH_CONTEXT_KEY;
+
+import org.forgerock.jaspi.runtime.context.config.ModuleConfigurationFactory;
 import org.forgerock.json.fluent.JsonValue;
-import org.forgerock.json.resource.JsonResource;
+import org.forgerock.json.resource.ConnectionFactory;
 import org.forgerock.openidm.core.ServerConstants;
+import org.forgerock.openidm.crypto.CryptoService;
 import org.forgerock.openidm.servletregistration.RegisteredFilter;
+import static org.forgerock.openidm.servletregistration.RegisteredFilter.FILTER_ORDER;
 import org.forgerock.openidm.servletregistration.ServletRegistration;
-import org.forgerock.openidm.jaspi.modules.IDMAuthModule;
-import org.forgerock.openidm.jaspi.modules.IDMAuthenticationAuditLogger;
-import org.forgerock.openidm.objset.JsonResourceObjectSet;
-import org.forgerock.openidm.objset.ObjectSet;
+import static org.forgerock.openidm.servletregistration.ServletRegistration.SERVLET_FILTER_CLASS;
+import static org.forgerock.openidm.servletregistration.ServletRegistration.SERVLET_FILTER_CLASS_PATH_URLS;
+import static org.forgerock.openidm.servletregistration.ServletRegistration.SERVLET_FILTER_PRE_INVOKE_ATTRIBUTES;
+import static org.forgerock.openidm.servletregistration.ServletRegistration.SERVLET_FILTER_URL_PATTERNS;
+import static org.forgerock.openidm.servletregistration.ServletRegistration.SERVLET_FILTER_INIT_PARAMETERS;
+import static org.forgerock.openidm.servletregistration.ServletRegistration.SERVLET_FILTER_SYSTEM_PROPERTIES;
+import static org.forgerock.openidm.servletregistration.ServletRegistration.SERVLET_FILTER_SCRIPT_EXTENSIONS;
+
+import org.forgerock.openidm.router.RouteService;
+import org.forgerock.script.ScriptRegistry;
 import org.osgi.framework.Constants;
 import org.osgi.service.component.ComponentContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 
 /**
  * Configures the authentication chains based on configuration obtained through OSGi.
@@ -60,29 +65,32 @@ import org.slf4j.LoggerFactory;
  *     <code>
  * {
  *     "serverAuthConfig" : {
- *         "iwaAdPassthrough" : {
- *             "sessionModule" : {
- *                 "name" : "JWT_SESSION"
- *             },
- *             "authModules" : [
- *                 {
- *                     "name" : "IWA",
- *                     "someSetting" : "some-value"
- *                 },
- *                 {
- *                     "name" : "PASSTHROUGH",
- *                     "someSetting" : "some-value"
- *                 }
- *             ]
+ *         "scriptExtensions" : {
+ *             "augmentSecurityContext" : {
+ *                 "type" : "text/javascript",
+ *                 "file" : "auth/authnPopulateContext.js"
+ *             }
  *         },
- *         "adPassthroughOnly" : {
- *             "authModules" : [
- *                 {
- *                     "name" : "PASSTHROUGH",
- *                     "passThroughAuth" : "system/AD/account"
+ *         "sessionModule" : {
+ *             "name" : "JWT_SESSION",
+ *                 "properties" : {
+ *                     "someSetting" : "some-value"
  *                 }
- *             ]
- *         }
+ *         },
+ *         "authModules" : [
+ *             {
+ *                 "name" : "IWA",
+ *                 "properties" : {
+ *                     "someSetting" : "some-value"
+ *                 }
+ *             },
+ *             {
+ *                 "name" : "PASSTHROUGH",
+ *                 "properties" : {
+ *                     "someSetting" : "some-value"
+ *                 }
+ *             }
+ *         ]
  *     }
  * }
  *     </code>
@@ -103,13 +111,10 @@ public class OSGiAuthnFilterBuilder {
     /** The PID for this component. */
     public static final String PID = "org.forgerock.openidm.authnfilterbuilder";
 
-    private static final String DEFAULT_LOGGER_CLASS_NAME = IDMAuthenticationAuditLogger.class.getCanonicalName();
-
     // config tokens
-    private static final String CONFIG_SERVER_AUTH_CONFIG = "serverAuthConfig";
-    private static final String CONFIG_AUDIT_LOGGER = "auditLogger";
-    private static final String CONFIG_AUTHN_POPULATE_CONTEXT_SCRIPT = "authnPopulateContextScript";
     private static final String CONFIG_ADDITIONAL_URL_PATTERNS = "additionalUrlPatterns";
+
+    private static final int DEFAULT_FILTER_ORDER = 100;
 
     private Logger logger = LoggerFactory.getLogger(this.getClass());
 
@@ -136,14 +141,28 @@ public class OSGiAuthnFilterBuilder {
      */
     @Activate
     protected void activate(ComponentContext context) throws Exception {
-        ConfigurationManager.unconfigure();
+        instance = this;
+        JsonValue scriptExtensions = config.get(SERVLET_FILTER_SCRIPT_EXTENSIONS);
+        List<String> additionalUrlPatterns = getAdditionalUrlPatterns(config);
         configureAuthenticationFilter(config);
-        String authnPopulateScriptLocation = config.get(CONFIG_SERVER_AUTH_CONFIG).get(CONFIG_AUTHN_POPULATE_CONTEXT_SCRIPT)
-                .defaultTo("bin/defaults/script/auth/authnPopulateContext.js").asString();
-        List<String> additionalUrlPatterns = config.get(CONFIG_SERVER_AUTH_CONFIG).get(CONFIG_ADDITIONAL_URL_PATTERNS)
-                .defaultTo(new ArrayList<String>(0)).asList(String.class);
 
-        registerAuthnFilter(authnPopulateScriptLocation, additionalUrlPatterns);
+        registerAuthnFilter(scriptExtensions, additionalUrlPatterns);
+    }
+
+    /**
+     * Gets the additional url parameters value out of the authentication.json configuration.
+     *
+     * @param config The authentication json configuration.
+     * @return The additional url parameters, if any.
+     */
+    private List<String> getAdditionalUrlPatterns(final JsonValue config) {
+        List<String> additionalUrlPatterns = config
+                .get(SERVER_AUTH_CONTEXT_KEY)
+                .get(CONFIG_ADDITIONAL_URL_PATTERNS)
+                .defaultTo(new ArrayList<String>(0))
+                .asList(String.class);
+        config.get(SERVER_AUTH_CONTEXT_KEY).remove(CONFIG_ADDITIONAL_URL_PATTERNS);
+        return additionalUrlPatterns;
     }
 
     /**
@@ -151,150 +170,72 @@ public class OSGiAuthnFilterBuilder {
      *
      * @param jsonConfig The authentication configuration.
      */
-    private void configureAuthenticationFilter(JsonValue jsonConfig) {
+    private void configureAuthenticationFilter(JsonValue jsonConfig) throws Exception {
 
         if (jsonConfig == null) {
             // No configurations found
             logger.warn("Could not find any configurations for the AuthnFilter, filter will not function");
             return;
         }
-
-        JsonValue serverAuthConfig = jsonConfig.get("serverAuthConfig").required();
-
-        Configuration configuration = new Configuration();
-        String auditLoggerClassName = serverAuthConfig.get(CONFIG_AUDIT_LOGGER).defaultTo(DEFAULT_LOGGER_CLASS_NAME).asString();
-        configuration.setAuditLoggerClassName(auditLoggerClassName);
-
-        // For each ServerAuthConfig
-        for (String serverAuthConfigKey : serverAuthConfig.keys()) {
-            if (CONFIG_AUDIT_LOGGER.equals(serverAuthConfigKey)
-                    || CONFIG_AUTHN_POPULATE_CONTEXT_SCRIPT.equals(serverAuthConfigKey)
-                    || CONFIG_ADDITIONAL_URL_PATTERNS.equals(serverAuthConfigKey)) {
-                continue;
-            } else {
-                AuthContextConfiguration authContextConfiguration = configuration.addAuthContext(serverAuthConfigKey);
-                addAuthContext(authContextConfiguration, serverAuthConfig.get(serverAuthConfigKey));
-                authContextConfiguration.done();
-            }
-        }
-
-        try {
-            ConfigurationManager.configure(configuration);
-        } catch (AuthException e) {
-            logger.error("Failed to configure the commons Authentication Filter");
-        }
+        JaspiRuntimeConfigurationFactory.INSTANCE.setModuleConfiguration(jsonConfig);
     }
 
-    /**
-     * Adds a configured Auth Context to the authentication filter.
-     * <p>
-     * The Auth Context details the list of Session and Auth modules in the authentication chain.
-     *
-     * @param authContextConfiguration The AuthContextConfiguration builder instance.
-     * @param authContextConfig The auth context configuration.
-     */
-    private void addAuthContext(AuthContextConfiguration authContextConfiguration, JsonValue authContextConfig) {
+    // ----- Declarative Service Implementation
+    private static OSGiAuthnFilterBuilder instance;
 
-        JsonValue sessionModuleConfig = authContextConfig.get("sessionModule");
-        if (sessionModuleConfig != null) {
-            Map<String, Object> moduleProperties = getAuthModuleProperties(sessionModuleConfig);
-            if (moduleProperties != null) {
-                authContextConfiguration.setSessionModule(moduleProperties);
-            }
-        }
+    @Reference(target = "("+ServerConstants.ROUTER_PREFIX+"=/repo/*)")
+    RouteService repositoryRoute;
 
-        Iterator<JsonValue> authModulesIter = authContextConfig.get("authModules").required().iterator();
-        while (authModulesIter.hasNext()) {
-            JsonValue authModuleConfig = authModulesIter.next();
-            Map<String, Object> moduleProperties = getAuthModuleProperties(authModuleConfig);
-            if (moduleProperties != null) {
-                authContextConfiguration.addAuthenticationModule(moduleProperties);
-            }
-        }
-    }
+    @Reference(policy = ReferencePolicy.DYNAMIC)
+    CryptoService cryptoService;
 
-    /**
-     * Parses the auth module configuration into a map of module properties.
-     *
-     * @param authModuleConfig The auth module configuration.
-     * @return The auth module properties.
-     */
-    private Map<String, Object> getAuthModuleProperties(JsonValue authModuleConfig) {
+    @Reference(policy = ReferencePolicy.STATIC, target="(service.pid=org.forgerock.openidm.internal)")
+    protected ConnectionFactory connectionFactory;
 
-        boolean enabled = authModuleConfig.get("enabled").defaultTo(true).asBoolean();
-        if (enabled) {
-
-            String className = resolveAuthModuleClassName(authModuleConfig.get("name").asString());
-
-            Map<String, Object> moduleProperties = new HashMap<String, Object>(authModuleConfig.asMap());
-            moduleProperties.remove("enabled");
-            moduleProperties.remove("name");
-            moduleProperties.put("className", className);
-
-            return moduleProperties;
-        }
-
-        return null;
-    }
-
-    /**
-     * Resolves the given auth module name from either a core IDM auth module name from {@link IDMAuthModule} or
-     * a fully qualified class name of the auth module.
-     *
-     * @param authModuleName The auth module name.
-     * @return The auth module class name.
-     */
-    private String resolveAuthModuleClassName(String authModuleName) {
-        try {
-            return IDMAuthModule.valueOf(authModuleName).getAuthModuleClass().getCanonicalName();
-        } catch (IllegalArgumentException e) {
-            return authModuleName;
-        }
-    }
-
-    @Reference(
-            name = "ref_Auth_JsonResourceRouterService",
-            referenceInterface = JsonResource.class,
-            bind = "bindRouter",
-            unbind = "unbindRouter",
-            cardinality = ReferenceCardinality.MANDATORY_UNARY,
-            policy = ReferencePolicy.STATIC,
-            target = "(service.pid=org.forgerock.openidm.router)"
-    )
-    /** The Router service. */
-    private static ObjectSet router;
-
-    /**
-     * Binds the JsonResource router to the router member variable.
-     *
-     * @param router The JsonResource router to bind.
-     */
-    private void bindRouter(JsonResource router) {
-        OSGiAuthnFilterBuilder.router = new JsonResourceObjectSet(router);
-    }
-
-    /**
-     * Unbinds the JsonResource router from the router member variable.
-     *
-     * @param router The JsonResource router to unbind.
-     */
-    private void unbindRouter(JsonResource router) {
-        OSGiAuthnFilterBuilder.router = null;
-    }
+    /** Script Registry service. */
+    @Reference(policy = ReferencePolicy.DYNAMIC)
+    protected ScriptRegistry scriptRegistry;
 
     /**
      * Returns the Router instance.
      *
      * @return The Router instance.
      */
-    public static ObjectSet getRouter() {
-        return router;
+    public static RouteService getRouter() {
+        return instance.repositoryRoute;
+    }
+
+    /**
+     * Returns the Crypto Service instance.
+     *
+     * @return The Crypto Service instance.
+     */
+    public static CryptoService getCryptoService() {
+        return instance.cryptoService;
+    }
+
+    /**
+     * Returns the ScriptRegistry instance
+     *
+     * @return the ScriptRegistry instance
+     */
+    public static ScriptRegistry getScriptRegistry() {
+        return instance.scriptRegistry;
+    }
+
+    /**
+     * Returns the ConnectionFactory instance
+     *
+     * @return The ConnectionFactory instance
+     */
+    public static ConnectionFactory getConnectionFactory() {
+        return instance.connectionFactory;
     }
 
     @Reference(
             name = "ref_ServletFilterRegistration",
             referenceInterface = ServletRegistration.class,
-            policy = ReferencePolicy.DYNAMIC,
+            policy = ReferencePolicy.STATIC,
             cardinality = ReferenceCardinality.MANDATORY_UNARY,
             bind = "bindServletFilterRegistration",
             unbind = "unbindServletFilterRegistration"
@@ -312,36 +253,33 @@ public class OSGiAuthnFilterBuilder {
     /**
      * Registers the Authentication Filter in OSGi.
      *
-     * @param authnPopulateScriptLocation
+     * @param scriptExtensions A map of script extensions to register for the filter, namely,
+     *                         the location of the authn augment context script.
      * @param additionalUrlPatterns additional url patterns to which to apply the filter
      * @throws Exception If a problem occurs whilst registering the filter.
      */
-    private void registerAuthnFilter(String authnPopulateScriptLocation, List<String> additionalUrlPatterns)
+    private void registerAuthnFilter(JsonValue scriptExtensions, List<String> additionalUrlPatterns)
             throws Exception {
 
         Map<String, String> initParams = new HashMap<String, String>();
-        initParams.put("moduleConfiguration", "idmAuth");
-
-        Map<String, String> augmentSecurityContext = new HashMap<String, String>();
-        augmentSecurityContext.put("type", "text/javascript");
-        augmentSecurityContext.put("file", authnPopulateScriptLocation);
-
-        Map<String, Object> scriptExtensions = new HashMap<String, Object>();
-        scriptExtensions.put("augmentSecurityContext", augmentSecurityContext);
+        initParams.put("module-configuration-factory-class", JaspiRuntimeConfigurationFactory.class.getName());
+        initParams.put("logging-configurator-class", JaspiRuntimeConfigurationFactory.class.getName());
 
         List<String> urlPatterns = new ArrayList<String>();
         urlPatterns.add("/openidm/*");
         urlPatterns.addAll(additionalUrlPatterns);
 
         Map<String, Object> filterConfig = new HashMap<String, Object>();
-        filterConfig.put("classPathURLs", new ArrayList<String>());
-        filterConfig.put("systemProperties", new HashMap<String, Object>());
-        filterConfig.put("requestAttributes", new HashMap<String, Object>());
-        filterConfig.put("initParams", initParams);
-        filterConfig.put("scriptExtensions", scriptExtensions);
-        filterConfig.put("urlPatterns", urlPatterns);
-        filterConfig.put("filterClass", AuthNFilter.class.getCanonicalName());
-        filterConfig.put("order", 100);
+        filterConfig.put(SERVLET_FILTER_CLASS_PATH_URLS, new ArrayList<String>());
+        filterConfig.put(SERVLET_FILTER_SYSTEM_PROPERTIES, new HashMap<String, Object>());
+        filterConfig.put(SERVLET_FILTER_PRE_INVOKE_ATTRIBUTES, new HashMap<String, Object>());
+        filterConfig.put(SERVLET_FILTER_INIT_PARAMETERS, initParams);
+        filterConfig.put(SERVLET_FILTER_URL_PATTERNS, urlPatterns);
+        filterConfig.put(SERVLET_FILTER_CLASS, JaspiRuntimeFilter.class.getCanonicalName());
+        filterConfig.put(FILTER_ORDER, DEFAULT_FILTER_ORDER);
+        if (!scriptExtensions.isNull() && scriptExtensions.isMap()) {
+            filterConfig.put(SERVLET_FILTER_SCRIPT_EXTENSIONS, scriptExtensions.asMap());
+        }
 
         JsonValue filterConfigJson = new JsonValue(filterConfig);
 
@@ -358,6 +296,7 @@ public class OSGiAuthnFilterBuilder {
         if (filter != null) {
             try {
                 servletFilterRegistration.unregisterFilter(filter);
+                JaspiRuntimeConfigurationFactory.INSTANCE.clear();
                 logger.info("Unregistered authentication filter.");
             } catch (Exception ex) {
                 logger.warn("Failure reported during unregistering of authentication filter: {}", ex.getMessage(), ex);

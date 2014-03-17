@@ -19,12 +19,14 @@ import java.util.HashMap;
 import java.util.Map;
 
 import org.forgerock.json.fluent.JsonValue;
-import org.forgerock.openidm.objset.ObjectSetContext;
-import org.forgerock.openidm.scope.ScopeFactory;
-import org.forgerock.openidm.script.Script;
-import org.forgerock.openidm.script.Scripts;
+import org.forgerock.json.resource.RootContext;
+import org.forgerock.script.Script;
+import org.forgerock.script.ScriptEntry;
+import org.forgerock.script.ScriptRegistry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import javax.script.ScriptException;
 
 /**
  * Handle liveSync failure by calling an external, user-supplied script.
@@ -36,11 +38,8 @@ public class ScriptedSyncFailureHandler implements SyncFailureHandler {
     /** Logger */
     private static final Logger logger = LoggerFactory.getLogger(ScriptedSyncFailureHandler.class);
 
-    /** ScopeFactory */
-    private final ScopeFactory scopeFactory;
-
     /** the script to call */
-    private final Script script;
+    private final ScriptEntry scriptEntry;
 
     /** map of references to built-in sync failure handlers made available to user-supplied script */
     private final Map<String,SyncFailureHandler> builtInHandlers;
@@ -48,13 +47,12 @@ public class ScriptedSyncFailureHandler implements SyncFailureHandler {
     /**
      * Construct this sync failure handler.
      *
-     * @param scopeFactory the ScopeFactory
      * @param config the config
      */
-    public ScriptedSyncFailureHandler(ScopeFactory scopeFactory, JsonValue config,
-            SyncFailureHandler... builtInHandlers) {
-        this.scopeFactory = scopeFactory;
-        this.script = Scripts.newInstance(getClass().getSimpleName(), config);
+    public ScriptedSyncFailureHandler(ScriptRegistry scriptRegistry, JsonValue config, SyncFailureHandler... builtInHandlers)
+        throws ScriptException {
+
+        this.scriptEntry = scriptRegistry.takeScript(config);
         this.builtInHandlers = new HashMap<String,SyncFailureHandler>();
         for (SyncFailureHandler handler : builtInHandlers) {
             if (handler instanceof LoggedIgnoreHandler) {
@@ -75,13 +73,16 @@ public class ScriptedSyncFailureHandler implements SyncFailureHandler {
     public void invoke(Map<String, Object> syncFailure, Exception failureCause)
         throws SyncHandlerException {
 
-        Map<String,Object> scope = scopeFactory.newInstance(ObjectSetContext.get());
-        scope.put("syncFailure", syncFailure);
-        scope.put("failureCause", failureCause);
-        scope.put("failureHandlers", builtInHandlers);
+        if (null == scriptEntry) {
+            throw new SyncHandlerException("No script registered");
+        }
 
+        Script script = scriptEntry.getScript(new RootContext());
+        script.put("syncFailure", syncFailure);
+        script.put("failureCause", failureCause);
+        script.put("failureHandlers", builtInHandlers);
         try {
-            script.exec(scope);
+            script.eval();
         } catch (Exception e) {
             logger.debug("sync failure script on {} encountered exception", syncFailure.get("systemIdentifier"), e);
             throw new SyncHandlerException("Issue with handling the failure during synchronize "

@@ -15,7 +15,8 @@
  */
 package org.forgerock.openidm.config.manage;
 
-import org.forgerock.openidm.objset.BadRequestException;
+import org.forgerock.json.resource.BadRequestException;
+import org.forgerock.json.resource.ResourceName;
 import org.testng.Assert;
 import org.testng.annotations.Test;
 
@@ -24,46 +25,47 @@ import org.testng.annotations.Test;
  * @version $Revision$ $Date$
  */
 public class ParsedIdTest {
+
     @Test
-    public void testParsedId() throws Exception {
+    public void testParsedResourceName() throws Exception {
         try {
-            ParsedId id = new ParsedId("");
+            ParsedId id = new ParsedId(ResourceName.valueOf(""));
             Assert.fail("Invalid id: ''");
         } catch (BadRequestException e) {
         }
         try {
-            ParsedId id = new ParsedId("//");
+            ParsedId id = new ParsedId(ResourceName.valueOf("//"));
             Assert.fail("Invalid id: '//'");
-        } catch (BadRequestException e) {
+        } catch (IllegalArgumentException e) {
         }
         try {
-            ParsedId id = new ParsedId("a/b/c");
+            ParsedId id = new ParsedId(ResourceName.valueOf("a/b/c"));
             Assert.fail("Invalid id: 'a/b/c'");
         } catch (BadRequestException e) {
         }
-        try {
-            ParsedId id = new ParsedId("/a");
-            Assert.fail("Invalid id: ''");
-        } catch (BadRequestException e) {
-        }
-        ParsedId a = new ParsedId("a");
+
+        ParsedId id = new ParsedId(ResourceName.valueOf("/a"));
+        Assert.assertEquals(id.toString(), "a");
+        Assert.assertFalse(id.isFactoryConfig());
+
+        ParsedId a = new ParsedId(ResourceName.valueOf("a"));
         Assert.assertEquals(a.toString(), "a");
         Assert.assertFalse(a.isFactoryConfig());
 
-        ParsedId b = new ParsedId("b/");
+        ParsedId b = new ParsedId(ResourceName.valueOf("b/"));
         Assert.assertEquals(b.toString(), "b");
         Assert.assertFalse(b.isFactoryConfig());
 
-        ParsedId c = new ParsedId("c/d");
+        ParsedId c = new ParsedId(ResourceName.valueOf("c/d"));
         Assert.assertEquals(c.toString(), "c-d");
         Assert.assertTrue(c.isFactoryConfig());
 
-        ParsedId e = new ParsedId("e/d/");
+        ParsedId e = new ParsedId(ResourceName.valueOf("e/d/"));
         Assert.assertEquals(e.toString(), "e-d");
         Assert.assertTrue(e.isFactoryConfig());
 
-        ParsedId f = new ParsedId(" f ");
-        Assert.assertEquals(f.toString(), "f");
+        ParsedId f = new ParsedId(ResourceName.valueOf(" f "));
+        Assert.assertEquals(f.toString(), "_f_");
         Assert.assertFalse(f.isFactoryConfig());
 
     }

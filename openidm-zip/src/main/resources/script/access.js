@@ -1,7 +1,7 @@
 /** 
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS HEADER.
  *
- * Copyright (c) 2011-2012 ForgeRock AS. All rights reserved.
+ * Copyright (c) 2011-2014 ForgeRock AS. All rights reserved.
  *
  * The contents of this file are subject to the terms
  * of the Common Development and Distribution License
@@ -42,8 +42,8 @@
 
 /*jslint vars:true*/ 
 
-var allowedPropertiesForManagedUser =   "userName,password,email,givenName,familyName,phoneNumber," + 
-                                        "address1,address2,city,stateProvince,postalCode,country,siteImage," + 
+var allowedPropertiesForManagedUser =   "userName,password,mail,givenName,sn,telephoneNumber," + 
+                                        "postalAddress,address2,city,stateProvince,postalCode,country,siteImage," + 
                                         "passPhrase,securityAnswer,securityQuestion";
 var httpAccessConfig = 
 { 
@@ -60,7 +60,7 @@ var httpAccessConfig =
             "roles"      : "*",
             "methods"    : "read",
             "actions"    : "*"
-        },
+         },
         {  
            "pattern"    : "config/ui/configuration",
            "roles"      : "openidm-reg,openidm-authorized",
@@ -70,14 +70,14 @@ var httpAccessConfig =
         // These options should only be available anonymously if securityQA is enabled
         {  
            "pattern"    : "config/ui/secquestions",
-           "roles"      : "openidm-reg",
+           "roles"      : "openidm-reg,openidm-authorized",
            "methods"    : "read",
            "actions"    : "*",
            "customAuthz" : "checkIfUIIsEnabled('securityQuestions')"
         },
         {  
-           "pattern"    : "managed/user/*",
-           "roles"      : "openidm-reg",
+           "pattern"    : "managed/user",
+           "roles"      : "openidm-reg,openidm-authorized",
            "methods"    : "create",
            "actions"    : "*",
            "customAuthz" : "checkIfUIIsEnabled('selfRegistration') && managedUserRestrictedToAllowedProperties('"+allowedPropertiesForManagedUser+"')"
@@ -86,7 +86,7 @@ var httpAccessConfig =
         // Anonymous user can call the siteIdentification endpoint if it is enabled:
         {  
            "pattern"    : "endpoint/siteIdentification",
-           "roles"      : "openidm-reg",
+           "roles"      : "openidm-reg,openidm-authorized",
            "methods"    : "*",
            "actions"    : "*",
            "customAuthz" : "checkIfUIIsEnabled('siteIdentification')"
@@ -95,7 +95,7 @@ var httpAccessConfig =
         // Anonymous user can call the securityQA endpoint if it enabled:
         {  
            "pattern"    : "endpoint/securityQA",
-           "roles"      : "openidm-reg",
+           "roles"      : "openidm-reg,openidm-authorized",
            "methods"    : "*",
            "actions"    : "*",
            "customAuthz" : "checkIfUIIsEnabled('securityQuestions')"
@@ -103,7 +103,7 @@ var httpAccessConfig =
         // This is needed by both self reg and security questions
         {  
            "pattern"    : "policy/managed/user/*",
-           "roles"      : "openidm-reg",
+           "roles"      : "openidm-reg,openidm-authorized",
            "methods"    : "read,action",
            "actions"    : "*",
            "customAuthz" : "checkIfUIIsEnabled('selfRegistration') || checkIfUIIsEnabled('securityQuestions')"
@@ -154,9 +154,9 @@ var httpAccessConfig =
             "actions"   : "reauthenticate"
         },
         {   
-            "pattern"   : "*",
+            "pattern"   : "managed/user/*",
             "roles"     : "openidm-authorized",
-            "methods"   : "create,read,update,patch,action,query", // note the missing 'delete' - by default, users cannot delete things
+            "methods"   : "read,update,patch,action,query", // note the missing 'delete' - by default, users cannot delete themselves
             "actions"   : "*",
             "customAuthz" : "ownDataOnly() && managedUserRestrictedToAllowedProperties('"+allowedPropertiesForManagedUser+"') && disallowQueryExpression()",
             "excludePatterns": "system/*"
@@ -166,11 +166,32 @@ var httpAccessConfig =
         {
             "pattern"   : "endpoint/usernotifications",
             "roles"     : "openidm-authorized",
-            "methods"   : "read,delete",
+            "methods"   : "read",
             "actions"   : "*"
         },
-        
+        {
+            "pattern"   : "endpoint/usernotifications/*",
+            "roles"     : "openidm-authorized",
+            "methods"   : "delete",
+            "actions"   : "*"
+        },
+
         // Workflow-related endpoints for authorized users
+
+        {
+            "pattern"   : "endpoint/getprocessesforuser",
+            "roles"     : "openidm-authorized",
+            "methods"   : "query",
+            "actions"   : "*",
+            "customAuthz" : "request.additionalParameters.userId === context.security.authorizationId.id"
+        },        
+        {
+            "pattern"   : "endpoint/gettasksview",
+            "roles"     : "openidm-authorized",
+            "methods"   : "query",
+            "actions"   : "*",
+            "customAuthz" : "request.additionalParameters.userId === context.security.authorizationId.id"
+        },
         {
             "pattern"   : "workflow/taskinstance/*",
             "roles"     : "openidm-authorized",
@@ -186,10 +207,10 @@ var httpAccessConfig =
             "customAuthz" : "canUpdateTask()"
         },
         {
-            "pattern"   : "workflow/processinstance/",
+            "pattern"   : "workflow/processinstance",
             "roles"     : "openidm-authorized",
-            "methods"   : "action",
-            "actions"   : "createProcessInstance",
+            "methods"   : "create",
+            "actions"   : "*",
             "customAuthz": "isAllowedToStartProcess()"
         },
         {

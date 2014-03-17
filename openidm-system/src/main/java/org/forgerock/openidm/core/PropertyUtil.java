@@ -1,11 +1,68 @@
+/*
+ * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS HEADER.
+ *
+ * Copyright (c) 2011-2013 ForgeRock AS. All Rights Reserved
+ *
+ * The contents of this file are subject to the terms
+ * of the Common Development and Distribution License
+ * (the License). You may not use this file except in
+ * compliance with the License.
+ *
+ * You can obtain a copy of the License at
+ * http://forgerock.org/license/CDDLv1.0.html
+ * See the License for the specific language governing
+ * permission and limitations under the License.
+ *
+ * When distributing Covered Code, include this CDDL
+ * Header Notice in each file and include the License file
+ * at http://forgerock.org/license/CDDLv1.0.html
+ * If applicable, add the following below the CDDL Header,
+ * with the fields enclosed by brackets [] replaced by
+ * your own identifying information:
+ * "Portions Copyrighted [year] [name of copyright owner]"
+ */
+
 package org.forgerock.openidm.core;
 
 import java.util.Stack;
 
 public class PropertyUtil {
 
-    private static final String DELIM_START = "&{";
-    private static final char DELIM_STOP = '}';
+    private PropertyUtil() {
+    }
+
+    public enum Delimiter {
+        DOLLAR {
+            @Override
+            char getStartChar() {
+                return '$';
+            }
+
+            @Override
+            String getStartString() {
+                return DELIM_START_DOLLAR;
+            }
+        },
+        AMPERSAND {
+            @Override
+            char getStartChar() {
+                return '&';
+            }
+
+            @Override
+            String getStartString() {
+                return DELIM_START_AMPERSAND;
+            }
+        };
+
+        abstract char getStartChar();
+
+        abstract String getStartString();
+    }
+
+    public static final String DELIM_START_DOLLAR = "${";
+    public static final String DELIM_START_AMPERSAND = "&{";
+    public static final char DELIM_STOP = '}';
 
     /**
      * <p>
@@ -18,14 +75,21 @@ public class PropertyUtil {
      * as nested variable placeholders, which are substituted from inner most to
      * outer most. Configuration properties override system properties.
      * </p>
-     * 
+     *
      * @param val
      *            The string on which to perform property substitution.
-     * @param identityServer
+     * @param propertyAccessor
      *            Set of configuration properties.
      * @return The value of the specified string after property substitution.
      **/
-    public static Object substVars(String val, final IdentityServer identityServer, boolean doEscape) {
+    public static Object substVars(String val, final PropertyAccessor propertyAccessor,
+            boolean doEscape) {
+        return substVars(val, propertyAccessor, Delimiter.AMPERSAND, doEscape);
+
+    }
+
+    public static Object substVars(String val, final PropertyAccessor propertyAccessor,
+            Delimiter delimiter, boolean doEscape) {
 
         // Assume we have a value that is something like:
         // "leading &{foo.&{bar}} middle ${baz} trailing"
@@ -40,7 +104,7 @@ public class PropertyUtil {
             if (stopDelim < 0) {
                 return val;
             }
-            startDelim = val.indexOf(DELIM_START);
+            startDelim = val.indexOf(delimiter.getStartString());
             // If there is no starting delimiter, then just return
             // the value since there is no variable declared.
             if (startDelim < 0) {
@@ -66,7 +130,17 @@ public class PropertyUtil {
                 break;
             }
             case '&': {
-                if ('{' == val.charAt(index + 1)) {
+                if ('{' == val.charAt(index + 1) && val.charAt(index) == delimiter.getStartChar()) {
+                    // This is a start of a new property
+                    propertyStack.push(new StringBuilder(val.length()));
+                    index++;
+                } else {
+                    propertyStack.peek().append(val.charAt(index));
+                }
+                break;
+            }
+            case '$': {
+                if ('{' == val.charAt(index + 1) && val.charAt(index) == delimiter.getStartChar()) {
                     // This is a start of a new property
                     propertyStack.push(new StringBuilder(val.length()));
                     index++;
@@ -86,22 +160,22 @@ public class PropertyUtil {
                             && parentBuilder.length() == 0) {
                         // Replace entire value with an Object
                         Object substValue =
-                                getSubstituteValue(Object.class, variable, identityServer);
+                                getSubstituteValue(Object.class, variable, propertyAccessor);
                         if (null != substValue) {
                             return substValue;
                         } else {
-                            propertyStack.peek().append(DELIM_START).append(variable).append(
-                                    DELIM_STOP);
+                            propertyStack.peek().append(delimiter.getStartString())
+                                    .append(variable).append(DELIM_STOP);
                             return propertyStack.peek().toString();
                         }
                     } else {
                         String substValue =
-                                getSubstituteValue(String.class, variable, identityServer);
+                                getSubstituteValue(String.class, variable, propertyAccessor);
                         if (null != substValue) {
                             propertyStack.peek().append(substValue);
                         } else {
-                            propertyStack.peek().append(DELIM_START).append(variable).append(
-                                    DELIM_STOP);
+                            propertyStack.peek().append(delimiter.getStartString())
+                                    .append(variable).append(DELIM_STOP);
                         }
                     }
                 }
@@ -116,33 +190,26 @@ public class PropertyUtil {
         // Close the open &{ tags.
         for (int index = propertyStack.size(); index > 1; index--) {
             StringBuilder top = propertyStack.pop();
-            propertyStack.peek().append(DELIM_START).append(top.toString());
+            propertyStack.peek().append(delimiter.getStartString()).append(top.toString());
         }
         return parentBuilder.toString();
     }
-    
+
+    @SuppressWarnings("unchecked")
     private static <T> T getSubstituteValue(Class<T> type, String variable,
-            final IdentityServer identityServer) {
+            final PropertyAccessor propertyAccessor) {
         T substValue = null;
         if (String.class.isAssignableFrom(type)) {
             // Get the value of the deepest nested variable
             // placeholder.
             // Try to configuration properties first.
             substValue =
-                    (identityServer != null) ? (T) identityServer.getProperty(variable, null, String.class)
-                            : null;
-            if (substValue == null) {
-                // Ignore unknown property values.
-                substValue = (T) System.getProperty(variable);
-            }
+                    (propertyAccessor != null) ? (T) propertyAccessor.getProperty(variable, null,
+                            String.class) : null;
         } else {
             substValue =
-                    (identityServer != null) ? identityServer.getProperty(variable, null, type)
+                    (propertyAccessor != null) ? propertyAccessor.getProperty(variable, null, type)
                             : null;
-            if (substValue == null) {
-                // Ignore unknown property values.
-                substValue = (T) System.getProperty(variable);
-            }
         }
         return substValue;
     }

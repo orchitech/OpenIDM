@@ -54,7 +54,7 @@ public class CleanupHelper {
             }
         }
     }
-    
+
     /**
      * @param statement the statement to try to close if not null.
      * Failures to close are logged, no exception is propagated up
@@ -68,7 +68,7 @@ public class CleanupHelper {
             }
         }
     }
-    
+
     /**
      * @param rs the ResultSet to try to close if not null.
      * Failures to close are logged, no exception is propagated up

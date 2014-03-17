@@ -1,23 +1,33 @@
 /*
- * The contents of this file are subject to the terms of the Common Development and
- * Distribution License (the License). You may not use this file except in compliance with the
- * License.
+ * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS HEADER.
  *
- * You can obtain a copy of the License at legal/CDDLv1.0.txt. See the License for the
- * specific language governing permission and limitations under the License.
+ * Copyright (c) 2011-2014 ForgeRock AS. All Rights Reserved
  *
- * When distributing Covered Software, include this CDDL Header Notice in each file and include
- * the License file at legal/CDDLv1.0.txt. If applicable, add the following below the CDDL
- * Header, with the fields enclosed by brackets [] replaced by your own identifying
- * information: "Portions Copyrighted [year] [name of copyright owner]".
+ * The contents of this file are subject to the terms
+ * of the Common Development and Distribution License
+ * (the License). You may not use this file except in
+ * compliance with the License.
  *
- * Copyright © 2011-2013 ForgeRock Inc. All rights reserved.
+ * You can obtain a copy of the License at
+ * http://forgerock.org/license/CDDLv1.0.html
+ * See the License for the specific language governing
+ * permission and limitations under the License.
+ *
+ * When distributing Covered Code, include this CDDL
+ * Header Notice in each file and include the License file
+ * at http://forgerock.org/license/CDDLv1.0.html
+ * If applicable, add the following below the CDDL Header,
+ * with the fields enclosed by brackets [] replaced by
+ * your own identifying information:
+ * "Portions Copyrighted [year] [name of copyright owner]"
  */
 
 package org.forgerock.openidm.filter;
 
-// Java Standard Edition
+import java.util.HashMap;
+import java.util.List;
 
+import org.apache.commons.lang3.StringUtils;
 import org.apache.felix.scr.annotations.Activate;
 import org.apache.felix.scr.annotations.Component;
 import org.apache.felix.scr.annotations.ConfigurationPolicy;
@@ -28,39 +38,54 @@ import org.apache.felix.scr.annotations.ReferenceCardinality;
 import org.apache.felix.scr.annotations.ReferencePolicy;
 import org.apache.felix.scr.annotations.Service;
 import org.forgerock.json.fluent.JsonValue;
-import org.forgerock.json.resource.JsonResource;
-import org.forgerock.json.resource.JsonResourceException;
+import org.forgerock.json.resource.ActionRequest;
+import org.forgerock.json.resource.BadRequestException;
+import org.forgerock.json.resource.ConnectionFactory;
+import org.forgerock.json.resource.ForbiddenException;
+import org.forgerock.json.resource.InternalServerErrorException;
+import org.forgerock.json.resource.NotSupportedException;
+import org.forgerock.json.resource.PatchRequest;
+import org.forgerock.json.resource.ReadRequest;
+import org.forgerock.json.resource.Resource;
+import org.forgerock.json.resource.ResourceException;
+import org.forgerock.json.resource.ResultHandler;
+import org.forgerock.json.resource.SecurityContext;
+import org.forgerock.json.resource.ServerContext;
+import org.forgerock.json.resource.SingletonResourceProvider;
+import org.forgerock.json.resource.UpdateRequest;
+import org.forgerock.json.resource.servlet.HttpContext;
 import org.forgerock.openidm.core.ServerConstants;
+import org.forgerock.openidm.crypto.CryptoService;
 import org.forgerock.openidm.jaspi.config.AuthenticationConfig;
-import org.forgerock.openidm.jaspi.modules.AuthData;
 import org.forgerock.openidm.jaspi.modules.AuthHelper;
-import org.forgerock.openidm.objset.BadRequestException;
-import org.forgerock.openidm.objset.ForbiddenException;
 import org.osgi.framework.Constants;
 import org.osgi.service.component.ComponentContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map.Entry;
 
 /**
- * Auth Filter.
- *
+ * Auth Filter
+ * 
  * @author Jamie Nelson
  * @author aegloff
  * @author ckienle
+ * @author brmiller
  */
-@Component(name = "org.forgerock.openidm.reauthentication", immediate = true, policy = ConfigurationPolicy.IGNORE)
-@Service(value = {AuthFilterService.class, JsonResource.class})
+@Component(name = AuthFilter.PID, immediate = true, policy = ConfigurationPolicy.IGNORE)
+@Service({SingletonResourceProvider.class})
 @Properties({
-        @Property(name = Constants.SERVICE_VENDOR, value = ServerConstants.SERVER_VENDOR_NAME),
-        @Property(name = Constants.SERVICE_DESCRIPTION, value = "OpenIDM Authentication Filter Service"),
-        @Property(name = "openidm.router.prefix", value = "authentication")
+    @Property(name = Constants.SERVICE_VENDOR, value = ServerConstants.SERVER_VENDOR_NAME),
+    @Property(name = Constants.SERVICE_DESCRIPTION, value = "OpenIDM Authentication Filter Service"),
+    @Property(name = ServerConstants.ROUTER_PREFIX, value = "/authentication")
 })
-public class AuthFilter implements AuthFilterService, JsonResource {
+public class AuthFilter implements SingletonResourceProvider {
 
+    public static final String PID = "org.forgerock.openidm.reauthentication";
+
+    /**
+     * Setup logging for the {@link AuthFilter}.
+     */
     private final static Logger logger = LoggerFactory.getLogger(AuthFilter.class);
 
     /** Re-authentication password header. */
@@ -69,7 +94,7 @@ public class AuthFilter implements AuthFilterService, JsonResource {
     private String queryId;
     private String queryOnResource;
 
-    /** The authentication module to delegate to. */
+    /** The authentication module to delegate to.*/
     private AuthHelper authHelper;
 
     @Reference(
@@ -88,19 +113,22 @@ public class AuthFilter implements AuthFilterService, JsonResource {
         config = null;
     }
 
+    /** The Connection Factory */
+    @Reference(policy = ReferencePolicy.STATIC, target="(service.pid=org.forgerock.openidm.internal)")
+    protected ConnectionFactory connectionFactory;
+
     /**
      * Activates this component.
      *
-     * @param context The ComponentContext.
+     * @param context The ComponentContext
      */
     @Activate
-    protected synchronized void activate(ComponentContext context) {
+    protected synchronized void activate(ComponentContext context) throws ResourceException {
         logger.info("Activating Auth Filter with configuration {}", context.getProperties());
         setConfig(config);
     }
 
-    private void setConfig(JsonValue config) {
-
+    private void setConfig(JsonValue config) throws ResourceException {
         queryId = config.get("queryId").defaultTo("credential-query").asString();
         queryOnResource = config.get("queryOnResource").defaultTo("managed/user").asString();
 
@@ -110,93 +138,81 @@ public class AuthFilter implements AuthFilterService, JsonResource {
         String userRolesProperty = properties.get("userRoles").asString();
         List<String> defaultRoles = config.get("defaultUserRoles").asList(String.class);
 
-        authHelper = new AuthHelper(userIdProperty, userCredentialProperty, userRolesProperty, defaultRoles);
+        authHelper = new AuthHelper(cryptoService, connectionFactory, userIdProperty,
+                userCredentialProperty, userRolesProperty, defaultRoles);
     }
 
+    // ----- Declarative Service Implementation
+
+    @Reference(policy = ReferencePolicy.DYNAMIC)
+    CryptoService cryptoService;
+
+    // ----- Implementation of SingletonResourceProvider interface
+
     /**
-     * Action support, including re-authenticate action.
-     * {@inheritDoc}
+     * Action support, including reauthenticate action {@inheritDoc}
      */
-    public JsonValue handle(JsonValue request) throws JsonResourceException {
-        JsonValue response = new JsonValue(new HashMap());
-        String id = request.get("id").asString();
-
-        JsonValue params = request.get("params");
-        String action = params.get("_action").asString();
-        if (action == null) {
-            throw new BadRequestException("Action parameter is not present or value is null");
-        }
-
-        if (id == null) {
-            // operation on collection
-            if ("reauthenticate".equalsIgnoreCase(action)) {
-                try {
-                    AuthData reauthenticated = reauthenticate(request);
-                    response.put("reauthenticated", Boolean.TRUE);
-                    response.put("username", reauthenticated.getUsername());
-                } catch (AuthException ex) {
-                    throw new ForbiddenException("Reauthentication failed", ex);
+    @Override
+    public void actionInstance(ServerContext context, ActionRequest request,
+            ResultHandler<JsonValue> handler) {
+        try {
+            if ("reauthenticate".equalsIgnoreCase(request.getAction())) {
+                if (context.containsContext(HttpContext.class)
+                        && context.containsContext(SecurityContext.class)) {
+                    String authcid = context.asContext(SecurityContext.class).getAuthenticationId();
+                    HttpContext httpContext = context.asContext(HttpContext.class);
+                    String password = httpContext.getHeaderAsString(HEADER_REAUTH_PASSWORD);
+                    if (StringUtils.isBlank(authcid) || StringUtils.isBlank(password)) {
+                        logger.debug("Failed authentication, missing or empty headers");
+                        handler.handleError(new ForbiddenException(
+                                "Failed authentication, missing or empty headers"));
+                        return;
+                    }
+                    if (!authHelper.authenticate(queryId, queryOnResource, authcid, password, null, context)) {
+                        //TODO Handle message
+                        handler.handleError(new ForbiddenException("Reauthentication failed", new AuthException(authcid)));
+                    }
+                    JsonValue result = new JsonValue(new HashMap<String, Object>());
+                    result.put("reauthenticated", true);
+                    handler.handleResult(result);
                 }
             } else {
-                throw new BadRequestException("Action " + action + " on authentication service not supported "
-                        + params);
+                handler.handleError(new BadRequestException("Action " + request.getAction()
+                        + " on authentication service not supported"));
             }
-        } else {
-            throw new BadRequestException("Actions not supported on child resource of authentication service "
-                    + params);
+        } catch (Exception e) {
+            handler.handleError(new InternalServerErrorException(e));
         }
-        return response;
     }
 
     /**
-     * Re-authenticate based on the context associated with the request.
-     *
-     * @param request the full request
-     * @return authenticated user if success
-     * @throws AuthException if reauthentication failed
+     * {@inheritDoc}
      */
-    public AuthData reauthenticate(JsonValue request) throws AuthException {
-        JsonValue secCtx = getSecurityContext(request);
-        JsonValue headers = secCtx.get("headers");
-        String reauthPassword = null;
-        for (Entry<String, Object> entry : headers.asMap().entrySet()) {
-            if (entry.getKey().equalsIgnoreCase(HEADER_REAUTH_PASSWORD)) {
-                reauthPassword = (String) entry.getValue();
-                break;
-            }
-        }
-        AuthData ad = new AuthData();
-        String username = secCtx.get("security").get("username").asString();
-        ad.setUsername(username);
-        if (username == null || reauthPassword == null || username.equals("") || reauthPassword.equals("")) {
-            logger.debug("Failed authentication, missing or empty headers");
-            throw new AuthException("Failed authentication, missing or empty headers");
-        }
-        boolean authenticated = authHelper.authenticate(queryId, queryOnResource, username, reauthPassword, ad);
-        if (!authenticated) {
-            throw new AuthException(ad.getUsername());
-        }
-        return ad;
+    @Override
+    public void patchInstance(ServerContext context, PatchRequest request,
+            ResultHandler<Resource> handler) {
+        final ResourceException e = new NotSupportedException("Patch operations are not supported");
+        handler.handleError(e);
     }
 
     /**
-     * Gets the Security Context.
-     *
-     * @param request the full request
-     * @return the security context of the request, or null if does not exist
+     * {@inheritDoc}
      */
-    private JsonValue getSecurityContext(JsonValue request) {
-        JsonValue result = new JsonValue(null);
-        while (request != null && !request.isNull()) {
-            if ("http".equals(request.get("type").asString())) {
-                if (!request.get("security").isNull()) {
-                    result = request;
-                    break;
-                }
-            }
-            request = request.get("parent");
-        }
-        return result;
+    @Override
+    public void readInstance(ServerContext context, ReadRequest request,
+            ResultHandler<Resource> handler) {
+        final ResourceException e = new NotSupportedException("Read operations are not supported");
+        handler.handleError(e);
+    }
+
+    /**
+     * {@inheritDoc}
+     */
+    @Override
+    public void updateInstance(ServerContext context, UpdateRequest request,
+            ResultHandler<Resource> handler) {
+        final ResourceException e =
+                new NotSupportedException("Update operations are not supported");
+        handler.handleError(e);
     }
 }
-

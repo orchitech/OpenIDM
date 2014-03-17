@@ -23,7 +23,7 @@ import java.util.Map;
  * @author brmiller
  */
 public class InfiniteRetrySyncFailureHandler implements SyncFailureHandler {
-    /** an instance of the InfiniteRetrySyncFailureHanlder -- there only needs to be one */
+    /** an instance of the InfiniteRetrySyncFailureHandler -- there only needs to be one */
     public static final SyncFailureHandler INSTANCE = new InfiniteRetrySyncFailureHandler();
 
     // restrict instantiation to the above INSTANCE

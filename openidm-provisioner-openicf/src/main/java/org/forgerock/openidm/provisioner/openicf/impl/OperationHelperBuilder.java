@@ -28,8 +28,8 @@ package org.forgerock.openidm.provisioner.openicf.impl;
 
 import org.forgerock.json.fluent.JsonValue;
 import org.forgerock.json.fluent.JsonValueException;
-import org.forgerock.json.resource.JsonResourceException;
-import org.forgerock.json.schema.validator.exceptions.SchemaException;
+import org.forgerock.json.resource.BadRequestException;
+import org.forgerock.json.resource.ResourceException;
 import org.forgerock.openidm.crypto.CryptoService;
 import org.forgerock.openidm.provisioner.Id;
 import org.forgerock.openidm.provisioner.openicf.OperationHelper;
@@ -39,7 +39,6 @@ import org.forgerock.openidm.provisioner.openicf.commons.OperationOptionInfoHelp
 import org.identityconnectors.common.Assertions;
 import org.identityconnectors.framework.api.APIConfiguration;
 import org.identityconnectors.framework.api.operations.APIOperation;
-import org.identityconnectors.framework.common.serializer.SerializerUtil;
 import org.identityconnectors.framework.impl.api.APIConfigurationImpl;
 
 import java.util.Map;
@@ -55,7 +54,7 @@ public class OperationHelperBuilder {
     private Map<String, Map<Class<? extends APIOperation>, OperationOptionInfoHelper>> operationOptionHelpers;
     private String systemName;
 
-    public OperationHelperBuilder(String system, JsonValue jsonConfiguration, APIConfiguration defaultAPIConfiguration) throws SchemaException, JsonValueException {
+    public OperationHelperBuilder(String system, JsonValue jsonConfiguration, APIConfiguration defaultAPIConfiguration) throws JsonValueException {
         runtimeAPIConfiguration = (APIConfigurationImpl) defaultAPIConfiguration;
         ConnectorUtil.configureDefaultAPIConfiguration(jsonConfiguration, defaultAPIConfiguration);
         supportedObjectTypes = ConnectorUtil.getObjectTypes(jsonConfiguration);
@@ -63,19 +62,17 @@ public class OperationHelperBuilder {
         this.systemName = Assertions.blankChecked(system, "systemName");
     }
 
-    public OperationHelper build(String objectType, JsonValue object, CryptoService cryptoService) throws JsonResourceException {
+    public OperationHelper build(String objectType, JsonValue object, CryptoService cryptoService) throws ResourceException {
         ObjectClassInfoHelper objectClassInfoHelper = supportedObjectTypes.get(objectType);
         if (null == objectClassInfoHelper) {
-            throw new JsonResourceException(400, "Unsupported object type: " + objectType
-                    + " not in supported types" + supportedObjectTypes.keySet());
+            throw new BadRequestException("Unsupported object type: " + objectType + " not in supported types" + supportedObjectTypes.keySet());
         }
-        APIConfiguration _configuration = getRuntimeAPIConfiguration();
-
+//        APIConfiguration _configuration = getRuntimeAPIConfiguration();
+//
 //        TODO Set custom runtimeAPIConfiguration properties
 //        if (null != object.get("_configuration")) {
 //            ConnectorUtil.configureDefaultAPIConfiguration(null, _configuration);
 //        }
-
 
         return new OperationHelperImpl(new Id(systemName, objectType), objectClassInfoHelper, operationOptionHelpers.get(objectType), cryptoService);
     }

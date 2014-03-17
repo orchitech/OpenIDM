@@ -1,7 +1,7 @@
-/** 
+/**
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS HEADER.
  *
- * Copyright (c) 2012 ForgeRock AS. All Rights Reserved
+ * Copyright (c) 2012-2013 ForgeRock AS. All Rights Reserved
  *
  * The contents of this file are subject to the terms
  * of the Common Development and Distribution License
@@ -24,21 +24,8 @@
 
 (function () {
     // Get the current session's user information
-    var val,secCtx = request.parent.security;
     if (request.method === "read") {
-        if (secCtx && secCtx.userid) {
-            val = {"username" : secCtx.username, 
-                   "roles" : secCtx["openidm-roles"],
-                   "userid" : {
-                        "component" : secCtx.userid.component, 
-                        "id" : secCtx.userid.id
-                   }
-            }; 
-        } else if (secCtx) {
-            val = {"username" : secCtx.user};
-        } else {
-            throw "Invalid security context, can not retrieve user information associated with the session.";
-        }
+        return context.security;
     } else {
         throw "Unsupported operation on info login service: " + request.method;
     }

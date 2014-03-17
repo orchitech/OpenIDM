@@ -30,13 +30,15 @@ import java.util.Set;
 
 import junit.framework.TestCase;
 
+import org.forgerock.json.resource.MemoryBackend;
+import org.forgerock.json.resource.Resources;
 import org.quartz.JobDetail;
 import org.quartz.SimpleTrigger;
 import org.quartz.Trigger;
 
 /**
  * Test class that contains unit tests for the RepoJobStore class.
- * 
+ *
  * @author ckienle
  *
  */
@@ -44,44 +46,44 @@ public class TestRepoJobstore extends TestCase {
 
     private RepoJobStore jobStore;
     private SimpleSignaler signaler;
-    
+
     public void setUp() {
         signaler = new SimpleSignaler();
         jobStore = new RepoJobStore();
-        jobStore.setRepositoryService(new MockRepositoryService());
+        jobStore.setRepositoryService(Resources.newCollection(new MemoryBackend()));
         jobStore.setSchedulerSignaler(signaler);
     }
-    
+
     public void tearDown() {
         jobStore = null;
     }
-    
+
     public void testStoreRetrieveRemoveTrigger() throws Exception {
         Trigger trigger = new SimpleTrigger("trigger1", "group1", new Date());
         Trigger retrievedTrigger1 = null;
         Trigger retrievedTrigger2 = null;
-        
+
         jobStore.storeTrigger(null, trigger, false);
         retrievedTrigger1 = jobStore.retrieveTrigger(null, trigger.getName(), trigger.getGroup());
         jobStore.removeTrigger(null, trigger.getName(), trigger.getGroup());
         retrievedTrigger2 = jobStore.retrieveTrigger(null, trigger.getName(), trigger.getGroup());
 
         assertEquals(trigger, retrievedTrigger1);
-        assertNull(retrievedTrigger2);  
+        assertNull(retrievedTrigger2);
     }
 
     public void testStoreRetrieveRemoveJob() throws Exception {
         JobDetail job = new JobDetail("job1", "group1", SimpleJob.class);
         JobDetail retrievedJob1 = null;
         JobDetail retrievedJob2 = null;
-        
+
         jobStore.storeJob(null, job, false);
         retrievedJob1 = jobStore.retrieveJob(null, job.getName(), job.getGroup());
         jobStore.removeJob(null, job.getName(), job.getGroup());
         retrievedJob2 = jobStore.retrieveJob(null, job.getName(), job.getGroup());
 
         assertEquals(job, retrievedJob1);
-        assertNull(retrievedJob2);  
+        assertNull(retrievedJob2);
     }
 
     public void testStoreJobAndTrigger() throws Exception {
@@ -98,10 +100,10 @@ public class TestRepoJobstore extends TestCase {
 
         assertEquals(job, retrievedJob);
         assertEquals(trigger, retrievedTrigger1);
-        assertNull(jobStore.retrieveTrigger(null, trigger.getName(), trigger.getGroup())); 
-        assertNull(jobStore.retrieveJob(null, job.getName(), job.getGroup()));  
+        assertNull(jobStore.retrieveTrigger(null, trigger.getName(), trigger.getGroup()));
+        assertNull(jobStore.retrieveJob(null, job.getName(), job.getGroup()));
     }
-    
+
     public void testJobState() throws Exception {
         Trigger trigger = new SimpleTrigger("trigger1", "group1", new Date());
         JobDetail job = new JobDetail("job1", "group1", SimpleJob.class);
@@ -109,18 +111,18 @@ public class TestRepoJobstore extends TestCase {
         jobStore.storeJobAndTrigger(null, job, trigger);
 
         assertEquals(0, jobStore.getPausedTriggerGroups(null).size());
-        
+
         jobStore.pauseTriggerGroup(null, "group1");
         Set<String> paused = jobStore.getPausedTriggerGroups(null);
         assertEquals(1, paused.size());
-        
+
         String pausedGroup = paused.iterator().next();
         assertEquals("group1", pausedGroup);
-        
+
         jobStore.resumeAll(null);
         assertEquals(0, jobStore.getPausedTriggerGroups(null).size());
     }
-    
+
     /*public void testAcquireNextTrigger() throws Exception {
         long currentTime = System.currentTimeMillis();
         Date start1 = new Date(currentTime + 10000);
@@ -129,7 +131,7 @@ public class TestRepoJobstore extends TestCase {
         Date end1 = new Date(currentTime + 11000);
         Date end2 = new Date(currentTime + 21000);
         Date end3 = new Date(currentTime - 3500000);
-        
+
         JobDetail job = new JobDetail("job1", "group1", SimpleJob.class);
         Trigger trigger1 = new SimpleTrigger("trigger1", "group1", job.getName(), job.getGroup(), start1, end1, 2, 2000);
         Trigger trigger2 = new SimpleTrigger("trigger2", "group1", job.getName(), job.getGroup(), start2, end2, 2, 2000);
@@ -138,7 +140,7 @@ public class TestRepoJobstore extends TestCase {
         trigger1.computeFirstFireTime(null);
         trigger2.computeFirstFireTime(null);
         trigger3.computeFirstFireTime(null);
-        
+
         jobStore.storeTrigger(null, trigger1, false);
         jobStore.storeTrigger(null, trigger2, false);
         jobStore.storeTrigger(null, trigger3, false);
@@ -159,9 +161,9 @@ public class TestRepoJobstore extends TestCase {
         jobStore.removeTrigger(null, trigger1.getName(), trigger1.getGroup());
         jobStore.removeTrigger(null, trigger2.getName(), trigger2.getGroup());
         jobStore.removeTrigger(null, trigger3.getName(), trigger3.getGroup());
-        
+
         signaler.clear();
     }*/
-    
-    
+
+
 }

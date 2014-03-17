@@ -3,13 +3,13 @@
         {
             "onRequest" : {
                 "type" : "text/javascript",
-                "file" : "bin/defaults/script/router-authz.js"
+                "file" : "router-authz.js"
             }
         },
         {
             "onRequest" : {
                 "type" : "text/javascript",
-                "file" : "bin/defaults/script/policyFilter.js"
+                "file" : "policyFilter.js"
             },
             "methods" : [
                 "create",

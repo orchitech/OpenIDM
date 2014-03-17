@@ -17,6 +17,6 @@
 /**
  * OpenIDM servlet filter registration handling.
  * <p>
- * This package defines the related classes necessary for adding custom servlet filters and servlets into OpenIDM
+ * This package defines the related classes necessary for adding custom servlet filters into OpenIDM
  */
 package org.forgerock.openidm.servletregistration;

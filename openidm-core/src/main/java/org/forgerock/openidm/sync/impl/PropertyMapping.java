@@ -1,4 +1,4 @@
-/*  
+/*
  * The contents of this file are subject to the terms of the Common Development and
  * Distribution License (the License). You may not use this file except in compliance with the
  * License.
@@ -21,6 +21,10 @@ import java.util.HashMap;
 import java.util.Map;
 
 // SLF4J
+import org.forgerock.json.resource.BadRequestException;
+import org.forgerock.json.resource.InternalServerErrorException;
+import org.forgerock.json.resource.ResourceException;
+import org.forgerock.script.ScriptEntry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -30,11 +34,10 @@ import org.forgerock.json.fluent.JsonValue;
 import org.forgerock.json.fluent.JsonValueException;
 import org.forgerock.json.fluent.JsonPointer;
 
+import javax.script.ScriptException;
+import org.forgerock.openidm.sync.impl.Scripts.Script;
+
 // OpenIDM
-import org.forgerock.openidm.script.Script;
-import org.forgerock.openidm.script.ScriptException;
-import org.forgerock.openidm.script.Scripts;
-import org.forgerock.openidm.sync.SynchronizationException;
 
 /**
  * TODO: Description.
@@ -80,7 +83,7 @@ class PropertyMapping {
         JsonValue jv = targetObject;
         for (int n = 0; n < tokens.length - 1; n++) {
             JsonValue child = jv.get(tokens[n]);
-            if (child.isNull() && !jv.isDefined(tokens[n])) { 
+            if (child.isNull() && !jv.isDefined(tokens[n])) {
                 try {
                     jv.put(tokens[n], new HashMap());
                 } catch (JsonValueException jve) {

@@ -27,9 +27,7 @@
 package org.forgerock.openidm.provisioner.openicf;
 
 import org.forgerock.json.fluent.JsonValue;
-import org.forgerock.json.resource.JsonResourceException;
-import org.identityconnectors.common.Pair;
-import org.identityconnectors.framework.api.APIConfiguration;
+import org.forgerock.json.resource.ResourceException;
 import org.identityconnectors.framework.api.operations.APIOperation;
 import org.identityconnectors.framework.common.objects.*;
 import org.identityconnectors.framework.common.objects.filter.Filter;
@@ -37,7 +35,6 @@ import org.identityconnectors.framework.common.objects.filter.Filter;
 import java.net.URI;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 
 /**
  * @author $author$
@@ -59,20 +56,21 @@ public interface OperationHelper {
      * @return if {@code denied} is true and the {@code onDeny} equals
      *         {@link org.forgerock.openidm.provisioner.openicf.commons.OperationOptionInfoHelper.OnDenyAction#DO_NOTHING}
      *         returns false else true
-     * @throws JsonResourceException if {@code denied} is true and the {@code onDeny} equals
+     * @throws ResourceException if {@code denied} is true and the {@code onDeny} equals
      *                            {@link org.forgerock.openidm.provisioner.openicf.commons.OperationOptionInfoHelper.OnDenyAction#THROW_EXCEPTION}
      */
-    public boolean isOperationPermitted(Class<? extends APIOperation> operation) throws JsonResourceException;
+    public boolean isOperationPermitted(Class<? extends APIOperation> operation) throws ResourceException;
 
     /**
      * Gets a new instance of {@link OperationOptionsBuilder} filled with {@link OperationOptions}.
      *
      * @param operation
+     * @param connectorObject
      * @param source
      * @return
      * @throws Exception
      */
-    public OperationOptionsBuilder getOperationOptionsBuilder(Class<? extends APIOperation> operation, JsonValue source) throws Exception;
+    public OperationOptionsBuilder getOperationOptionsBuilder(Class<? extends APIOperation> operation, ConnectorObject connectorObject, JsonValue source) throws Exception;
 
     /**
      * Resets the {@code _id} attribute in the {@code target} object to the new {@code uid} value.
@@ -80,7 +78,7 @@ public interface OperationHelper {
      * @param uid    new id value
      * @param target
      */
-    public void resetUid(Uid uid, JsonValue target);
+//    public void resetUid(Uid uid, JsonValue target);
 
     /**
      * Generate the fully qualified id from unqualified object {@link Uid}
@@ -96,9 +94,9 @@ public interface OperationHelper {
     /**
      * @return new instance of {@link ResultsHandler}
      */
-    public ResultsHandler getResultsHandler();
+//    public ResultsHandler getResultsHandler();
 
-    public List<Map<String, Object>> getQueryResult();
+//    public List<Map<String, Object>> getQueryResult();
 
     /**
      * Build new {@code Filter} instance form the {@code query} and {@code params} values.
@@ -108,9 +106,11 @@ public interface OperationHelper {
      * @return
      * @throws Exception
      */
-    public Filter build(Map<String, Object> query, Map<String, Object> params) throws Exception;
+//    public Filter build(Map<String, Object> query, Map<String, Object> params) throws Exception;
 
-    public Pair<ObjectClass, Set<Attribute>> build(Class<? extends APIOperation> operation, JsonValue source) throws Exception;
+    public ConnectorObject build(Class<? extends APIOperation> operation, JsonValue source) throws Exception;
+
+//    public ConnectorObject build(Class<? extends APIOperation> operation, String id, JsonValue source) throws Exception;
 
     /**
      * Build a new Map object from the {@code source} object.

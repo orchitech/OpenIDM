@@ -16,15 +16,6 @@
 
 package org.forgerock.openidm.config.persistence;
 
-import org.forgerock.openidm.crypto.CryptoService;
-import org.forgerock.openidm.repo.RepoBootService;
-
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
-import org.osgi.service.cm.ConfigurationAdmin;
-import org.osgi.service.component.ComponentContext;
-
 import org.apache.felix.scr.annotations.Activate;
 import org.apache.felix.scr.annotations.Component;
 import org.apache.felix.scr.annotations.ConfigurationPolicy;
@@ -32,10 +23,14 @@ import org.apache.felix.scr.annotations.Deactivate;
 import org.apache.felix.scr.annotations.Properties;
 import org.apache.felix.scr.annotations.Property;
 import org.apache.felix.scr.annotations.Reference;
-import org.apache.felix.scr.annotations.ReferenceCardinality;
-import org.apache.felix.scr.annotations.ReferencePolicy;
-import org.apache.felix.scr.annotations.ReferenceStrategy;
-import org.apache.felix.scr.annotations.Service;
+import org.forgerock.openidm.core.ServerConstants;
+import org.forgerock.openidm.crypto.CryptoService;
+import org.forgerock.openidm.repo.RepoBootService;
+import org.forgerock.openidm.router.RouteService;
+import org.osgi.service.cm.ConfigurationAdmin;
+import org.osgi.service.component.ComponentContext;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Starts the configuration installation handling once the 
@@ -44,7 +39,7 @@ import org.apache.felix.scr.annotations.Service;
  * @author aegloff
  */
 @Component(
-    name = "org.forgerock.openidm.config.starter",
+    name = "org.forgerock.openidm.config.enhanced.starter",
     policy = ConfigurationPolicy.OPTIONAL,
     immediate = true
 )
@@ -62,7 +57,7 @@ public class ConfigInstallStarter {
     CryptoService crypto;
     
     @Reference
-    RepoBootService bootRepo;
+    protected RepoBootService repo;
     
     @Reference
     ConfigPersisterMarker configPersisterMarker;

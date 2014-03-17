@@ -36,13 +36,13 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-import org.forgerock.openidm.objset.BadRequestException;
-import org.forgerock.openidm.objset.ConflictException;
+import org.forgerock.json.resource.BadRequestException;
+import org.forgerock.json.resource.ConflictException;
 
 import org.testng.annotations.*;
 import static org.testng.Assert.*;
-import static org.fest.assertions.Assertions.assertThat;
-import static org.fest.assertions.MapAssert.entry;
+import static org.fest.assertions.api.Assertions.assertThat;
+import static org.fest.assertions.api.Assertions.entry;
 
 public class TokenHandlerTest {
 
@@ -65,7 +65,8 @@ public class TokenHandlerTest {
         assertEquals(result, "select * from managed/user where firstname = 'John' and lastname like 'D%'");
     }
     
-    @Test(dependsOnMethods = {"initTokenHandler"})
+    // Disabled as CREST 2.x supports param values only
+    //@Test(dependsOnMethods = {"initTokenHandler"})
     public void replaceTokensWithListValues() throws BadRequestException {
         String queryString = "select ${unquoted:_fields} from ${unquoted:_resource} where firstname = ${firstname} and lastname like '${unquoted:lastname}%'";
 

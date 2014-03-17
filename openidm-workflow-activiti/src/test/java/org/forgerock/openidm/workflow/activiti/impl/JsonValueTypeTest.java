@@ -105,6 +105,7 @@ public class JsonValueTypeTest {
 
         @Override
         public void setByteArrayValue(byte[] bytes) {
+            throw new UnsupportedOperationException("Not supported yet.");
         }
     }
 }
