@@ -455,13 +455,13 @@ class ManagedObjectSet implements CollectionResourceProvider, ScriptListener {
         // Perform pre-property encryption
         onStore(context, newValue); // performs per-property encryption
 
-        // Populate the virtual properties (so they are updated for sync-ing)
-        populateVirtualProperties(context, newValue);
-        
         // Perform update
         UpdateRequest updateRequest = Requests.newUpdateRequest(repoId(resourceId), newValue);
         updateRequest.setRevision(rev);
         Resource response = connectionFactory.getConnection().update(context, updateRequest);
+
+        // Populate the virtual properties (so they are updated for sync-ing)
+        populateVirtualProperties(context, response.getContent());
 
         // Execute the postUpdate script if configured
         execScript(context, postUpdate, response.getContent(),
@@ -501,7 +501,7 @@ class ManagedObjectSet implements CollectionResourceProvider, ScriptListener {
         connectionFactory.getConnection().query(context, queryRequest,
                 new QueryResultHandler() {
                     final List<Resource> resources = new ArrayList<Resource>();
-            
+
                     @Override
                     public void handleError(final ResourceException error) {
                         handler.handleError(error);
@@ -533,7 +533,7 @@ class ManagedObjectSet implements CollectionResourceProvider, ScriptListener {
                         } else {
                             handler.handleError(new NotFoundException("Query returned no results"));
                         }
-                        
+
                     }
                 });
     }
@@ -553,10 +553,7 @@ class ManagedObjectSet implements CollectionResourceProvider, ScriptListener {
             // decrypt any incoming encrypted properties
             JsonValue value = decrypt(content);
             execScript(context, onCreate, value, null);
-            
-            // Populate the virtual properties (so they are available for sync-ing)
-            populateVirtualProperties(context, value);
-            
+
             // includes per-property encryption
             onStore(context, value);
 
@@ -569,6 +566,9 @@ class ManagedObjectSet implements CollectionResourceProvider, ScriptListener {
 
             activityLogger.log(context, request, "create", managedId(_new.getId()).toString(),
                     null, _new.getContent(), Status.SUCCESS);
+
+            // Populate the virtual properties (so they are available for sync-ing)
+            populateVirtualProperties(context, _new.getContent());
 
             // Execute the postCreate script if configured
             execScript(context, postCreate, _new.getContent(),
@@ -818,10 +818,10 @@ class ManagedObjectSet implements CollectionResourceProvider, ScriptListener {
 
         QueryRequest repoRequest = Requests.copyOfQueryRequest(request);
         repoRequest.setResourceName(repoId(null));
-        
+
         // The "executeOnRetrieve" parameter is used to indicate if is returning a full managed object
         String executeOnRetrieve = request.getAdditionalParameter("executeOnRetrieve");
-        
+
         // The onRetrieve script should only be run queries that return full managed objects
         final boolean onRetrieve = executeOnRetrieve == null
                 ? false
@@ -975,7 +975,7 @@ class ManagedObjectSet implements CollectionResourceProvider, ScriptListener {
         }
         return resource;
     }
-    
+
     /**
      * Sends a sync action request to the synchronization service
      *
