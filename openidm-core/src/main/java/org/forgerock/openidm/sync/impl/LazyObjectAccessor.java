@@ -24,6 +24,8 @@
 
 package org.forgerock.openidm.sync.impl;
 
+import java.io.UnsupportedEncodingException;
+import java.net.URLEncoder;
 import java.util.Map;
 
 import org.forgerock.json.fluent.JsonValue;
@@ -36,7 +38,6 @@ import org.forgerock.json.resource.ServerContext;
 import org.forgerock.openidm.smartevent.EventEntry;
 import org.forgerock.openidm.smartevent.Name;
 import org.forgerock.openidm.smartevent.Publisher;
-
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -171,7 +172,11 @@ public class LazyObjectAccessor {
         StringBuilder sb = new StringBuilder();
         sb.append(componentContext);
         if (componentContext != null) {
-            sb.append('/').append(localId);
+            try {
+                sb.append('/').append(URLEncoder.encode(localId, "UTF-8"));
+            } catch (UnsupportedEncodingException e) {
+                throw new IllegalStateException(e);
+            }
         }
         return sb.toString();
     }
